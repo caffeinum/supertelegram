@@ -1,6 +1,6 @@
 {
-  "name": "@caffeinum/telegram-cli",
-  "version": "0.1.1",
+  "name": "supertelegram",
+  "version": "0.1.0",
   "description": "telegram cli for humans and bots",
   "module": "index.ts",
   "type": "module",
