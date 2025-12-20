@@ -1,15 +1,48 @@
 # bot-creator
 
-To install dependencies:
+telegram cli for ai to read/write messages using gramjs.
+
+## setup
 
 ```bash
 bun install
 ```
 
-To run:
-
+create `.env` file:
 ```bash
-bun run index.ts
+TELEGRAM_APP_ID="your_app_id"
+TELEGRAM_APP_HASH="your_app_hash"
 ```
 
-This project was created using `bun init` in bun v1.3.3. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+get credentials from https://my.telegram.org/apps
+
+## login
+
+```bash
+bun run login
+```
+
+session is saved to `session.txt`.
+
+## usage
+
+```bash
+# send a message
+bun run cli send <username> <message>
+
+# read messages
+bun run cli read <username> [limit]
+
+# list dialogs
+bun run cli dialogs [limit]
+```
+
+### flags
+
+- `-v, --verbose` - show debug logs
+
+## interactive mode
+
+```bash
+bun run cli:interactive
+```
