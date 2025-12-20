@@ -32,6 +32,7 @@ that's it! now you're ready to use telegram from the cli.
 ```bash
 # send a message
 telegram send @username "hello there"
+telegram send "me" "note to self"  # use "me" for saved messages
 
 # read messages (shows [photo], [video], [file] indicators)
 telegram read @username 10
@@ -51,12 +52,12 @@ telegram dialogs 10
 ```bash
 # send a file with optional caption
 telegram send-file @username photo.jpg
-telegram send-file @username video.mp4 "check this out!"
+telegram send-file "me" video.mp4 "check this out!"
 
 # download media from a message
 # (use 'read' command to get message IDs)
 telegram download @username 12345 ./downloaded.jpg
-telegram download @username 12346  # auto-named file
+telegram download "me" 12346  # auto-named file
 ```
 
 ### config
