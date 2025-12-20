@@ -1,6 +1,22 @@
 import { TelegramClient, type Api } from "telegram";
 import { StringSession } from "telegram/sessions";
+import { Logger } from "telegram/extensions/Logger";
+import type { LogLevel } from "telegram/extensions/Logger";
 import { loadSession, saveSession } from "../session/storage";
+
+let verbose = false;
+
+export function setVerbose(v: boolean) {
+  verbose = v;
+}
+
+class SilentLogger extends Logger {
+  log(_level: LogLevel, _message: string, _color: string): void {
+    if (verbose) {
+      super.log(_level, _message, _color);
+    }
+  }
+}
 
 const API_ID = Number(process.env.TELEGRAM_APP_ID);
 const API_HASH = process.env.TELEGRAM_APP_HASH ?? "";
@@ -15,6 +31,7 @@ export async function getClient(): Promise<TelegramClient> {
 
   client = new TelegramClient(session, API_ID, API_HASH, {
     connectionRetries: 5,
+    baseLogger: new SilentLogger(),
   });
 
   await client.connect();
