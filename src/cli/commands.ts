@@ -6,9 +6,12 @@ import {
   disconnect,
   getClient,
   login as telegramLogin,
+  sendFile as telegramSendFile,
+  downloadMedia as telegramDownloadMedia,
 } from "../client/telegram";
 import { askPhoneNumber, askPhoneCode, askPassword, askAppId, askAppHash } from "./prompts";
 import { getApiCredentials, setConfig } from "../config/manager";
+import { Api } from "telegram";
 
 export async function send(username: string, message: string) {
   if (!(await isLoggedIn())) {
@@ -21,6 +24,29 @@ export async function send(username: string, message: string) {
   await disconnect();
 }
 
+function getMediaInfo(msg: Api.Message): string {
+  if (!msg.media) return "";
+  
+  if (msg.media instanceof Api.MessageMediaPhoto) {
+    return " [photo]";
+  }
+  if (msg.media instanceof Api.MessageMediaDocument) {
+    const doc = msg.media.document;
+    if (doc instanceof Api.Document) {
+      const attrs = doc.attributes;
+      const filenameAttr = attrs.find((a) => "fileName" in a && a.fileName);
+      const filename = filenameAttr && "fileName" in filenameAttr ? filenameAttr.fileName : undefined;
+      const isVideo = attrs.some((a) => a instanceof Api.DocumentAttributeVideo);
+      const isAudio = attrs.some((a) => a instanceof Api.DocumentAttributeAudio);
+      
+      if (isVideo) return ` [video${filename ? `: ${filename}` : ""}]`;
+      if (isAudio) return ` [audio${filename ? `: ${filename}` : ""}]`;
+      return ` [file${filename ? `: ${filename}` : ""}]`;
+    }
+  }
+  return " [media]";
+}
+
 export async function read(username: string, limit = 10) {
   if (!(await isLoggedIn())) {
     console.error("not logged in. run: telegram login");
@@ -31,7 +57,8 @@ export async function read(username: string, limit = 10) {
   for (const msg of messages.reverse()) {
     const sender = msg.senderId?.toString() ?? "unknown";
     const date = msg.date ? new Date(msg.date * 1000).toISOString() : "";
-    console.log(`[${date}] [${sender}]: ${msg.message}`);
+    const mediaInfo = getMediaInfo(msg);
+    console.log(`[${date}] [${sender}]: ${msg.message}${mediaInfo}`);
   }
   await disconnect();
 }
@@ -88,6 +115,7 @@ export async function unread(limit = 20) {
       messages: fromOthers.map((m) => ({
         id: m.id,
         text: m.message,
+        media: m.media ? getMediaInfo(m).trim() : null,
         date: m.date ? new Date(m.date * 1000).toISOString() : null,
       })),
     });
@@ -178,4 +206,42 @@ export async function config(action?: string, key?: string, value?: string) {
   console.log("  telegram config set appId <id>");
   console.log("  telegram config set appHash <hash>");
   console.log("  telegram config get appId");
+}
+
+export async function sendFile(username: string, filePath: string, caption?: string) {
+  if (!(await isLoggedIn())) {
+    console.error("not logged in. run: telegram login");
+    process.exit(1);
+  }
+
+  const result = await telegramSendFile(username, filePath, caption);
+  console.log(`sent file id: ${result.id}`);
+  await disconnect();
+}
+
+export async function downloadMedia(username: string, messageId: number, outputPath?: string) {
+  if (!(await isLoggedIn())) {
+    console.error("not logged in. run: telegram login");
+    process.exit(1);
+  }
+
+  const messages = await getMessages(username, 100);
+  const msg = messages.find((m) => m.id === messageId);
+  
+  if (!msg) {
+    console.error(`message ${messageId} not found`);
+    await disconnect();
+    process.exit(1);
+  }
+  
+  if (!msg.media) {
+    console.error(`message ${messageId} has no media`);
+    await disconnect();
+    process.exit(1);
+  }
+
+  console.log("downloading media...");
+  const path = await telegramDownloadMedia(msg, outputPath);
+  console.log(`saved to: ${path || outputPath || "unknown"}`);
+  await disconnect();
 }

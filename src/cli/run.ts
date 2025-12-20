@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { send, read, dialogs, unread, reply, login, config } from "./commands";
+import { send, read, dialogs, unread, reply, login, config, sendFile, downloadMedia } from "./commands";
 import { setVerbose, setSessionPath } from "../client/telegram";
 
 const VERSION = "0.1.0";
@@ -12,13 +12,15 @@ usage:
   ${NAME} <command> [options]
 
 commands:
-  send <chat> <message>    send a message to a chat
-  read <chat> [limit]      read messages from a chat (default: 10)
-  reply <chat> <message>   reply to a chat by name (partial match)
-  dialogs [limit]          list recent dialogs (default: 10)
-  unread [limit]           show unread messages as json (default: 20)
-  login                    authenticate with telegram
-  config set <key> <val>   set API credentials (appId, appHash)
+  send <chat> <message>      send a message to a chat
+  send-file <chat> <path>    send a file/image/video (optional: caption)
+  read <chat> [limit]        read messages from a chat (default: 10)
+  download <chat> <id> [out] download media from message id
+  reply <chat> <message>     reply to a chat by name (partial match)
+  dialogs [limit]            list recent dialogs (default: 10)
+  unread [limit]             show unread messages as json (default: 20)
+  login                      authenticate with telegram
+  config set <key> <val>     set API credentials (appId, appHash)
 
 options:
   -v, --verbose            show debug logs
@@ -27,7 +29,9 @@ options:
 
 examples:
   ${NAME} send @username "hello there"
+  ${NAME} send-file @username photo.jpg "check this out"
   ${NAME} read @username 5
+  ${NAME} download @username 12345 ./photo.jpg
   ${NAME} reply "John" "hey!"
   ${NAME} unread
   ${NAME} dialogs 20
@@ -86,6 +90,22 @@ async function main() {
         process.exit(1);
       }
       await reply(rest[0], rest.slice(1).join(" "));
+      break;
+
+    case "send-file":
+      if (rest.length < 2 || !rest[0] || !rest[1]) {
+        console.error("usage: telegram send-file <chat> <path> [caption]");
+        process.exit(1);
+      }
+      await sendFile(rest[0], rest[1], rest.slice(2).join(" ") || undefined);
+      break;
+
+    case "download":
+      if (rest.length < 2 || !rest[0] || !rest[1]) {
+        console.error("usage: telegram download <chat> <message-id> [output-path]");
+        process.exit(1);
+      }
+      await downloadMedia(rest[0], Number.parseInt(rest[1]), rest[2]);
       break;
 
     case "login":

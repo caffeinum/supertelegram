@@ -27,21 +27,36 @@ that's it! now you're ready to use telegram from the cli.
 
 ## usage
 
+### messages
+
 ```bash
 # send a message
-telegram send <username> <message>
+telegram send @username "hello there"
 
-# read messages
-telegram read <username> [limit]
+# read messages (shows [photo], [video], [file] indicators)
+telegram read @username 10
 
 # reply to latest message
-telegram reply <username> <message>
+telegram reply "John" "hey back!"
 
-# get unread messages (json output)
-telegram unread [limit]
+# get unread messages (json output with media info)
+telegram unread 20
 
 # list dialogs
-telegram dialogs [limit]
+telegram dialogs 10
+```
+
+### media (images/videos/files)
+
+```bash
+# send a file with optional caption
+telegram send-file @username photo.jpg
+telegram send-file @username video.mp4 "check this out!"
+
+# download media from a message
+# (use 'read' command to get message IDs)
+telegram download @username 12345 ./downloaded.jpg
+telegram download @username 12346  # auto-named file
 ```
 
 ### config

@@ -84,6 +84,34 @@ export async function sendMessage(
   return c.sendMessage(username, { message });
 }
 
+export async function sendFile(
+  username: string,
+  filePath: string,
+  caption?: string
+): Promise<Api.Message> {
+  const c = await getClient();
+  return c.sendFile(username, {
+    file: filePath,
+    caption: caption,
+  });
+}
+
+export async function downloadMedia(
+  message: Api.Message,
+  outputPath?: string
+): Promise<string | undefined> {
+  const c = await getClient();
+  if (!message.media) {
+    return undefined;
+  }
+  
+  const buffer = await c.downloadMedia(message, {
+    outputFile: outputPath,
+  });
+  
+  return buffer as string | undefined;
+}
+
 export async function getMessages(
   username: string,
   limit = 10
