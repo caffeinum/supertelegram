@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { send, read, dialogs, unread, reply, login } from "./commands";
-import { setVerbose } from "../client/telegram";
+import { send, read, dialogs, unread, reply, login, config } from "./commands";
+import { setVerbose, setSessionPath } from "../client/telegram";
 
 const VERSION = "0.1.0";
 const NAME = "telegram";
@@ -17,7 +17,8 @@ commands:
   reply <chat> <message>   reply to a chat by name (partial match)
   dialogs [limit]          list recent dialogs (default: 10)
   unread [limit]           show unread messages as json (default: 20)
-  login                    authenticate with telegram (run separately)
+  login                    authenticate with telegram
+  config set <key> <val>   set API credentials (appId, appHash)
 
 options:
   -v, --verbose            show debug logs
@@ -56,7 +57,7 @@ if (verbose) {
 async function main() {
   switch (command) {
     case "send":
-      if (rest.length < 2) {
+      if (rest.length < 2 || !rest[0]) {
         console.error("usage: telegram send <chat> <message>");
         process.exit(1);
       }
@@ -64,7 +65,7 @@ async function main() {
       break;
 
     case "read":
-      if (rest.length < 1) {
+      if (rest.length < 1 || !rest[0]) {
         console.error("usage: telegram read <chat> [limit]");
         process.exit(1);
       }
@@ -80,7 +81,7 @@ async function main() {
       break;
 
     case "reply":
-      if (rest.length < 2) {
+      if (rest.length < 2 || !rest[0]) {
         console.error("usage: telegram reply <chat> <message>");
         process.exit(1);
       }
@@ -89,6 +90,10 @@ async function main() {
 
     case "login":
       await login();
+      break;
+
+    case "config":
+      await config(rest[0], rest[1], rest[2]);
       break;
 
     case "help":

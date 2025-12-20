@@ -3,6 +3,7 @@ import { StringSession } from "telegram/sessions";
 import { Logger } from "telegram/extensions/Logger";
 import type { LogLevel } from "telegram/extensions/Logger";
 import { loadSession, saveSession } from "../session/storage";
+import { getApiCredentials } from "../config/manager";
 
 let verbose = false;
 
@@ -11,25 +12,38 @@ export function setVerbose(v: boolean) {
 }
 
 class SilentLogger extends Logger {
-  log(_level: LogLevel, _message: string, _color: string): void {
+  override log(_level: LogLevel, _message: string, _color: string): void {
     if (verbose) {
       super.log(_level, _message, _color);
     }
   }
 }
 
-const API_ID = Number(process.env.TELEGRAM_APP_ID);
-const API_HASH = process.env.TELEGRAM_APP_HASH ?? "";
-
 let client: TelegramClient | null = null;
+let customSessionPath: string | undefined;
+
+export function setSessionPath(path: string) {
+  customSessionPath = path;
+}
 
 export async function getClient(): Promise<TelegramClient> {
   if (client) return client;
 
-  const sessionStr = loadSession();
+  const creds = getApiCredentials();
+  if (!creds) {
+    throw new Error(
+      "telegram API credentials not found.\n" +
+      "get them from: https://my.telegram.org/apps\n" +
+      "then run: telegram config set appId <id>\n" +
+      "         telegram config set appHash <hash>\n" +
+      "or set env vars: TELEGRAM_APP_ID, TELEGRAM_APP_HASH"
+    );
+  }
+
+  const sessionStr = loadSession(customSessionPath);
   const session = new StringSession(sessionStr);
 
-  client = new TelegramClient(session, API_ID, API_HASH, {
+  client = new TelegramClient(session, creds.appId, creds.appHash, {
     connectionRetries: 5,
     baseLogger: new SilentLogger(),
   });
@@ -58,7 +72,7 @@ export async function login(callbacks: {
   });
 
   const sessionStr = c.session.save() as unknown as string;
-  saveSession(sessionStr);
+  saveSession(sessionStr, customSessionPath);
   console.log("session saved!");
 }
 

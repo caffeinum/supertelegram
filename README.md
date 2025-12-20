@@ -8,23 +8,22 @@ telegram cli for ai to read/write messages using gramjs.
 npm install -g supertelegram
 ```
 
-## setup
+## quick start
 
-create `.env` file in your current directory:
-```bash
-TELEGRAM_APP_ID="your_app_id"
-TELEGRAM_APP_HASH="your_app_hash"
-```
-
-get credentials from https://my.telegram.org/apps
-
-## login
+just run login and follow the prompts:
 
 ```bash
 telegram login
 ```
 
-session is saved to `session.txt` in current directory.
+if you don't have API credentials configured, it will:
+1. prompt you to get them from https://my.telegram.org/apps
+2. ask for your app_id and app_hash
+3. save them to `~/.supertelegram/config.json`
+4. continue with telegram phone/code login
+5. save session to `~/.supertelegram/session.txt`
+
+that's it! now you're ready to use telegram from the cli.
 
 ## usage
 
@@ -45,11 +44,40 @@ telegram unread [limit]
 telegram dialogs [limit]
 ```
 
+### config
+
+manually set API credentials (optional):
+```bash
+telegram config set appId "12345678"
+telegram config set appHash "abc123..."
+```
+
 ### flags
 
 - `-v, --verbose` - show debug logs
 - `--help` - show help
 - `--version` - show version
+
+### advanced
+
+**multi-account / custom session location:**
+```bash
+# use env var
+TELEGRAM_SESSION=./custom.txt telegram send @friend "hey"
+
+# or pass flag (todo)
+telegram send @friend "hey" --session ./custom.txt
+```
+
+**precedence for API credentials:**
+1. `TELEGRAM_APP_ID` and `TELEGRAM_APP_HASH` env vars
+2. `~/.supertelegram/config.json` (global)
+3. `.env` file in current directory (for dev)
+
+**precedence for session file:**
+1. `TELEGRAM_SESSION` env var
+2. `~/.supertelegram/session.txt` (global default)
+3. `./session.txt` (backwards compat)
 
 ## development
 

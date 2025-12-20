@@ -7,7 +7,8 @@ import {
   getClient,
   login as telegramLogin,
 } from "../client/telegram";
-import { askPhoneNumber, askPhoneCode, askPassword } from "./prompts";
+import { askPhoneNumber, askPhoneCode, askPassword, askAppId, askAppHash } from "./prompts";
+import { getApiCredentials, setConfig } from "../config/manager";
 
 export async function send(username: string, message: string) {
   if (!(await isLoggedIn())) {
@@ -124,6 +125,18 @@ export async function reply(chatName: string, message: string) {
 }
 
 export async function login() {
+  // check if API credentials are configured
+  const creds = getApiCredentials();
+  if (!creds) {
+    console.log("no API credentials found. let's set them up first.");
+    const appId = await askAppId();
+    const appHash = await askAppHash();
+    
+    setConfig("appId", appId);
+    setConfig("appHash", appHash);
+    console.log("credentials saved to ~/.supertelegram/config.json\n");
+  }
+
   const loggedIn = await isLoggedIn();
   if (loggedIn) {
     console.log("already logged in!");
@@ -140,4 +153,29 @@ export async function login() {
 
   console.log("login complete!");
   await disconnect();
+}
+
+export async function config(action?: string, key?: string, value?: string) {
+  if (action === "set" && key && value) {
+    setConfig(key, value);
+    console.log(`set ${key} = ${value}`);
+    return;
+  }
+  
+  if (action === "get" && key) {
+    const cfg = getApiCredentials();
+    if (key === "appId" && cfg) {
+      console.log(cfg.appId);
+    } else if (key === "appHash" && cfg) {
+      console.log(cfg.appHash);
+    } else {
+      console.log("not found");
+    }
+    return;
+  }
+  
+  console.log("usage:");
+  console.log("  telegram config set appId <id>");
+  console.log("  telegram config set appHash <hash>");
+  console.log("  telegram config get appId");
 }

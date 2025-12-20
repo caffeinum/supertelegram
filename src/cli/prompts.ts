@@ -23,3 +23,12 @@ export async function askUsername(): Promise<string> {
 export async function askCommand(): Promise<string> {
   return input.text("command (send/read/dialogs/quit):");
 }
+
+export async function askAppId(): Promise<string> {
+  console.log("\nget your API credentials from: https://my.telegram.org/apps\n");
+  return input.text("enter TELEGRAM_APP_ID:");
+}
+
+export async function askAppHash(): Promise<string> {
+  return input.text("enter TELEGRAM_APP_HASH:");
+}
