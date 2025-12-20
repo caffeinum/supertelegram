@@ -1,6 +1,6 @@
 {
   "name": "supertelegram",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "telegram cli for humans and bots",
   "module": "index.ts",
   "type": "module",
