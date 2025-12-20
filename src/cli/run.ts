@@ -1,4 +1,4 @@
-import { send, read, dialogs } from "./commands";
+import { send, read, dialogs, unread, reply } from "./commands";
 import { setVerbose } from "../client/telegram";
 
 const rawArgs = process.argv.slice(2);
@@ -30,6 +30,18 @@ async function main() {
 
     case "dialogs":
       await dialogs(rest[0] ? Number.parseInt(rest[0]) : 10);
+      break;
+
+    case "unread":
+      await unread(rest[0] ? Number.parseInt(rest[0]) : 20);
+      break;
+
+    case "reply":
+      if (rest.length < 2) {
+        console.error("usage: bun run cli reply <chat> <message>");
+        process.exit(1);
+      }
+      await reply(rest[0], rest.slice(1).join(" "));
       break;
 
     default:
