@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "login": "bun run login.ts",
-    "cli": "bun run src/cli/index.ts"
+    "cli": "bun run src/cli/run.ts",
+    "cli:interactive": "bun run src/cli/index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
