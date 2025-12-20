@@ -3,8 +3,12 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "bin": {
+    "tg": "./src/cli/run.ts"
+  },
   "scripts": {
     "login": "bun run login.ts",
+    "tg": "bun run src/cli/run.ts",
     "cli": "bun run src/cli/run.ts",
     "cli:interactive": "bun run src/cli/index.ts"
   },

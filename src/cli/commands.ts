@@ -5,11 +5,13 @@ import {
   getDialogs,
   disconnect,
   getClient,
+  login as telegramLogin,
 } from "../client/telegram";
+import { askPhoneNumber, askPhoneCode, askPassword } from "./prompts";
 
 export async function send(username: string, message: string) {
   if (!(await isLoggedIn())) {
-    console.error("not logged in. run: bun run login");
+    console.error("not logged in. run: tg login");
     process.exit(1);
   }
 
@@ -20,7 +22,7 @@ export async function send(username: string, message: string) {
 
 export async function read(username: string, limit = 10) {
   if (!(await isLoggedIn())) {
-    console.error("not logged in. run: bun run login");
+    console.error("not logged in. run: tg login");
     process.exit(1);
   }
 
@@ -35,7 +37,7 @@ export async function read(username: string, limit = 10) {
 
 export async function dialogs(limit = 10) {
   if (!(await isLoggedIn())) {
-    console.error("not logged in. run: bun run login");
+    console.error("not logged in. run: tg login");
     process.exit(1);
   }
 
@@ -48,7 +50,7 @@ export async function dialogs(limit = 10) {
 
 export async function unread(limit = 20) {
   if (!(await isLoggedIn())) {
-    console.error("not logged in. run: bun run login");
+    console.error("not logged in. run: tg login");
     process.exit(1);
   }
 
@@ -73,8 +75,10 @@ export async function unread(limit = 20) {
     if (!dialog.entity) continue;
 
     // get last few messages
-    const messages = await client.getMessages(dialog.entity, { limit: Math.min(dialog.unreadCount, 5) });
-    
+    const messages = await client.getMessages(dialog.entity, {
+      limit: Math.min(dialog.unreadCount, 5),
+    });
+
     const fromOthers = messages.filter((m) => m.senderId?.toString() !== myId);
 
     output.push({
@@ -94,15 +98,15 @@ export async function unread(limit = 20) {
 
 export async function reply(chatName: string, message: string) {
   if (!(await isLoggedIn())) {
-    console.error("not logged in. run: bun run login");
+    console.error("not logged in. run: tg login");
     process.exit(1);
   }
 
   const client = await getClient();
   const dialogList = await getDialogs(50);
 
-  const dialog = dialogList.find(
-    (d) => d.title?.toLowerCase().includes(chatName.toLowerCase())
+  const dialog = dialogList.find((d) =>
+    d.title?.toLowerCase().includes(chatName.toLowerCase())
   );
 
   if (!dialog || !dialog.entity) {
@@ -116,5 +120,24 @@ export async function reply(chatName: string, message: string) {
   // mark as read
   await client.markAsRead(dialog.entity);
 
+  await disconnect();
+}
+
+export async function login() {
+  const loggedIn = await isLoggedIn();
+  if (loggedIn) {
+    console.log("already logged in!");
+    await disconnect();
+    return;
+  }
+
+  console.log("starting login...");
+  await telegramLogin({
+    phoneNumber: askPhoneNumber,
+    phoneCode: askPhoneCode,
+    password: askPassword,
+  });
+
+  console.log("login complete!");
   await disconnect();
 }
