@@ -3,7 +3,7 @@ import { send, read, dialogs, unread, reply, login } from "./commands";
 import { setVerbose } from "../client/telegram";
 
 const VERSION = "0.1.0";
-const NAME = "tg";
+const NAME = "telegram";
 
 const HELP = `
 ${NAME} - telegram cli for humans and bots
@@ -57,7 +57,7 @@ async function main() {
   switch (command) {
     case "send":
       if (rest.length < 2) {
-        console.error("usage: tg send <chat> <message>");
+        console.error("usage: telegram send <chat> <message>");
         process.exit(1);
       }
       await send(rest[0], rest.slice(1).join(" "));
@@ -65,7 +65,7 @@ async function main() {
 
     case "read":
       if (rest.length < 1) {
-        console.error("usage: tg read <chat> [limit]");
+        console.error("usage: telegram read <chat> [limit]");
         process.exit(1);
       }
       await read(rest[0], rest[1] ? Number.parseInt(rest[1]) : 10);
@@ -81,7 +81,7 @@ async function main() {
 
     case "reply":
       if (rest.length < 2) {
-        console.error("usage: tg reply <chat> <message>");
+        console.error("usage: telegram reply <chat> <message>");
         process.exit(1);
       }
       await reply(rest[0], rest.slice(1).join(" "));

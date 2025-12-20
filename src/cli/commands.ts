@@ -11,7 +11,7 @@ import { askPhoneNumber, askPhoneCode, askPassword } from "./prompts";
 
 export async function send(username: string, message: string) {
   if (!(await isLoggedIn())) {
-    console.error("not logged in. run: tg login");
+    console.error("not logged in. run: telegram login");
     process.exit(1);
   }
 
@@ -22,7 +22,7 @@ export async function send(username: string, message: string) {
 
 export async function read(username: string, limit = 10) {
   if (!(await isLoggedIn())) {
-    console.error("not logged in. run: tg login");
+    console.error("not logged in. run: telegram login");
     process.exit(1);
   }
 
@@ -37,7 +37,7 @@ export async function read(username: string, limit = 10) {
 
 export async function dialogs(limit = 10) {
   if (!(await isLoggedIn())) {
-    console.error("not logged in. run: tg login");
+    console.error("not logged in. run: telegram login");
     process.exit(1);
   }
 
@@ -50,7 +50,7 @@ export async function dialogs(limit = 10) {
 
 export async function unread(limit = 20) {
   if (!(await isLoggedIn())) {
-    console.error("not logged in. run: tg login");
+    console.error("not logged in. run: telegram login");
     process.exit(1);
   }
 
@@ -98,7 +98,7 @@ export async function unread(limit = 20) {
 
 export async function reply(chatName: string, message: string) {
   if (!(await isLoggedIn())) {
-    console.error("not logged in. run: tg login");
+    console.error("not logged in. run: telegram login");
     process.exit(1);
   }
 
