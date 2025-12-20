@@ -1,11 +1,11 @@
-# @caffeinum/telegram-cli
+# supertelegram
 
 telegram cli for ai to read/write messages using gramjs.
 
 ## installation
 
 ```bash
-npm install -g @caffeinum/telegram-cli
+npm install -g supertelegram
 ```
 
 ## setup
