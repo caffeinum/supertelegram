@@ -2,6 +2,8 @@
 
 telegram cli for ai to read/write messages using gramjs.
 
+> **warning:** don't use this to send spam or abuse the telegram api. your account can get banned.
+
 ## installation
 
 ```bash
@@ -99,8 +101,8 @@ telegram send @friend "hey" --session ./custom.txt
 
 clone repo and install:
 ```bash
-git clone https://github.com/caffeinum/telegram-cli.git
-cd telegram-cli
+git clone https://github.com/caffeinum/supertelegram.git
+cd supertelegram
 bun install
 ```
 
