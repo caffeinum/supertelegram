@@ -32,9 +32,11 @@ that's it! now you're ready to use telegram from the cli.
 ### messages
 
 ```bash
-# send a message
+# send a message — chat can be @username, a numeric id, or a name
 telegram send @username "hello there"
-telegram send "me" "note to self"  # use "me" for saved messages
+telegram send 7069934904 "hey"      # by id (for chats with no username)
+telegram send "Ben YC" "hello"      # by name (partial, case-insensitive)
+telegram send "me" "note to self"   # use "me" for saved messages
 
 # read messages (shows [photo], [video], [file] indicators)
 telegram read @username 10
@@ -45,7 +47,7 @@ telegram reply "John" "hey back!"
 # get unread messages (json output with media info)
 telegram unread 20
 
-# list dialogs
+# list dialogs (shows @username and [id: ...] for each chat)
 telegram dialogs 10
 ```
 

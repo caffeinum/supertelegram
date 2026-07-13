@@ -71,8 +71,16 @@ export async function dialogs(limit = 10) {
 
   const dialogList = await getDialogs(limit);
   for (const dialog of dialogList) {
-    console.log(`- ${dialog.title}`);
+    const entity = dialog.entity;
+    const username =
+      entity && "username" in entity && entity.username
+        ? ` @${entity.username}`
+        : "";
+    const id = dialog.id?.toString() ?? entity?.id?.toString() ?? "?";
+    const unread = dialog.unreadCount > 0 ? ` (${dialog.unreadCount} unread)` : "";
+    console.log(`- ${dialog.title}${username} [id: ${id}]${unread}`);
   }
+  console.log("\nsend with: telegram send <@username|id> \"your message\"");
   await disconnect();
 }
 

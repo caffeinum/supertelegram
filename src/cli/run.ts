@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 import { send, read, dialogs, unread, reply, login, config, sendFile, downloadMedia } from "./commands";
 import { setVerbose, setSessionPath } from "../client/telegram";
+import pkg from "../../package.json";
 
-const VERSION = "0.1.0";
+const VERSION = pkg.version;
 const NAME = "telegram";
 
 const HELP = `
@@ -12,7 +13,7 @@ usage:
   ${NAME} <command> [options]
 
 commands:
-  send <chat> <message>      send a message to a chat
+  send <chat> <message>      send a message (chat = @username, id, or name)
   send-file <chat> <path>    send a file/image/video (optional: caption)
   read <chat> [limit]        read messages from a chat (default: 10)
   download <chat> <id> [out] download media from message id
