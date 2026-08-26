@@ -11,6 +11,15 @@ import {
 } from "../client/telegram";
 import { askPhoneNumber, askPhoneCode, askPassword, askAppId, askAppHash } from "./prompts";
 import { getApiCredentials, setConfig } from "../config/manager";
+import {
+  listAccounts,
+  setCurrentAccount,
+  registerAccount,
+  removeAccount,
+  getCurrentAccount,
+  accountSessionPath,
+} from "../config/accounts";
+import { setSessionPath } from "../client/telegram";
 import { Api } from "telegram";
 
 export async function send(username: string, message: string) {
@@ -160,35 +169,116 @@ export async function reply(chatName: string, message: string) {
   await disconnect();
 }
 
-export async function login() {
-  // check if API credentials are configured
+export async function login(accountName?: string) {
+  const name = accountName || getCurrentAccount() || "default";
+  // isolate this login to the named account's own session file
+  setSessionPath(accountSessionPath(name));
+
+  // check if API credentials are configured (shared across accounts)
   const creds = getApiCredentials();
   if (!creds) {
     console.log("no API credentials found. let's set them up first.");
     const appId = await askAppId();
     const appHash = await askAppHash();
-    
+
     setConfig("appId", appId);
     setConfig("appHash", appHash);
     console.log("credentials saved to ~/.supertelegram/config.json\n");
   }
 
   const loggedIn = await isLoggedIn();
-  if (loggedIn) {
-    console.log("already logged in!");
-    await disconnect();
+  if (!loggedIn) {
+    console.log(`starting login for account "${name}"...`);
+    await telegramLogin({
+      phoneNumber: askPhoneNumber,
+      phoneCode: askPhoneCode,
+      password: askPassword,
+    });
+  } else {
+    console.log(`account "${name}" already has a session, refreshing details...`);
+  }
+
+  // capture identity + register (and make current)
+  const client = await getClient();
+  const me = await client.getMe();
+  const fullName = [me.firstName, me.lastName].filter(Boolean).join(" ");
+  registerAccount(name, {
+    username: me.username ?? undefined,
+    userId: me.id?.toString(),
+    name: fullName || undefined,
+  });
+
+  const label = me.username ? `@${me.username}` : fullName || name;
+  console.log(`logged in as ${label} — account "${name}" is now active`);
+  await disconnect();
+}
+
+export async function accounts() {
+  const list = listAccounts();
+  if (list.length === 0) {
+    console.log("no accounts yet. run: telegram login <name>");
+    return;
+  }
+  for (const { name, meta, current } of list) {
+    const marker = current ? "*" : " ";
+    const who = meta.username
+      ? `@${meta.username}`
+      : meta.name || (meta.userId ? `id ${meta.userId}` : "");
+    console.log(`${marker} ${name}${who ? ` — ${who}` : ""}`);
+  }
+  console.log("\nswitch with: telegram switch <name>");
+}
+
+export async function switchAccount(name?: string) {
+  if (!name) {
+    console.error("usage: telegram switch <name>");
+    console.error("see accounts with: telegram accounts");
+    process.exit(1);
+  }
+  setCurrentAccount(name);
+  console.log(`switched to account "${name}"`);
+}
+
+export async function logout(name?: string) {
+  const target = name || getCurrentAccount();
+  if (!target) {
+    console.error("no account to log out. see: telegram accounts");
+    process.exit(1);
+  }
+  removeAccount(target);
+  const now = getCurrentAccount();
+  console.log(
+    `logged out of "${target}"` + (now ? `. active account is now "${now}"` : ". no accounts left")
+  );
+}
+
+export async function whoami() {
+  const current = getCurrentAccount();
+  if (!current) {
+    console.log("not logged in. run: telegram login");
     return;
   }
 
-  console.log("starting login...");
-  await telegramLogin({
-    phoneNumber: askPhoneNumber,
-    phoneCode: askPhoneCode,
-    password: askPassword,
-  });
+  let meta = listAccounts().find((a) => a.name === current)?.meta;
 
-  console.log("login complete!");
-  await disconnect();
+  // backfill identity for accounts migrated without metadata
+  if (meta && !meta.username && !meta.name && (await isLoggedIn())) {
+    const client = await getClient();
+    const me = await client.getMe();
+    const fullName = [me.firstName, me.lastName].filter(Boolean).join(" ");
+    meta = {
+      username: me.username ?? undefined,
+      userId: me.id?.toString(),
+      name: fullName || undefined,
+    };
+    registerAccount(current, meta, false);
+    await disconnect();
+  }
+
+  const who = meta?.username
+    ? `@${meta.username}`
+    : meta?.name || (meta?.userId ? `id ${meta.userId}` : "unknown");
+  console.log(`${current} — ${who}`);
 }
 
 export async function config(action?: string, key?: string, value?: string) {

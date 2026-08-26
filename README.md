@@ -78,15 +78,42 @@ telegram config set appHash "abc123..."
 - `--help` - show help
 - `--version` - show version
 
+### multiple accounts
+
+log in to as many accounts as you want, each stored under a name, and switch
+between them:
+
+```bash
+# log into named accounts (prompts phone/code the first time)
+telegram login personal
+telegram login work
+
+# see them (* marks the active one)
+telegram accounts
+# * work — @yourworkhandle
+#   personal — @yourhandle
+
+# switch the active account (all later commands use it)
+telegram switch personal
+telegram whoami            # personal — @yourhandle
+
+# or run a single command as another account without switching
+telegram -a work send @boss "on it"
+
+# remove an account
+telegram logout work
+```
+
+sessions live in `~/.supertelegram/accounts/<name>.txt`; the active account is
+tracked in `~/.supertelegram/accounts.json`. API credentials (appId/appHash)
+are shared across accounts. upgrading from an older version? your existing
+login is migrated automatically into an account named `default`.
+
 ### advanced
 
-**multi-account / custom session location:**
+**custom session location (one-off / scripting):**
 ```bash
-# use env var
 TELEGRAM_SESSION=./custom.txt telegram send @friend "hey"
-
-# or pass flag (todo)
-telegram send @friend "hey" --session ./custom.txt
 ```
 
 **precedence for API credentials:**
@@ -95,9 +122,11 @@ telegram send @friend "hey" --session ./custom.txt
 3. `.env` file in current directory (for dev)
 
 **precedence for session file:**
-1. `TELEGRAM_SESSION` env var
-2. `~/.supertelegram/session.txt` (global default)
-3. `./session.txt` (backwards compat)
+1. `--account <name>` flag
+2. `TELEGRAM_SESSION` env var
+3. active account (`~/.supertelegram/accounts/<name>.txt`)
+4. `./session.txt` (backwards compat)
+5. `~/.supertelegram/session.txt` (legacy default)
 
 ## development
 

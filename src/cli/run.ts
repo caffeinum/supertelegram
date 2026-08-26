@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
-import { send, read, dialogs, unread, reply, login, config, sendFile, downloadMedia } from "./commands";
+import { send, read, dialogs, unread, reply, login, config, sendFile, downloadMedia, accounts, switchAccount, logout, whoami } from "./commands";
 import { setVerbose, setSessionPath } from "../client/telegram";
+import { migrateLegacyIfNeeded, accountSessionPath } from "../config/accounts";
 import pkg from "../../package.json";
 
 const VERSION = pkg.version;
@@ -20,10 +21,15 @@ commands:
   reply <chat> <message>     reply to a chat by name (partial match)
   dialogs [limit]            list recent dialogs (default: 10)
   unread [limit]             show unread messages as json (default: 20)
-  login                      authenticate with telegram
+  login [name]               authenticate with telegram (into a named account)
+  accounts                   list logged-in accounts (* = current)
+  switch <name>              switch the active account
+  whoami                     show the active account
+  logout [name]              remove an account (default: current)
   config set <key> <val>     set API credentials (appId, appHash)
 
 options:
+  -a, --account <name>     run this command as a specific account
   -v, --verbose            show debug logs
   -h, --help               show this help
   --version                show version
@@ -36,6 +42,9 @@ examples:
   ${NAME} reply "John" "hey!"
   ${NAME} unread
   ${NAME} dialogs 20
+  ${NAME} login work            # log into a second account named "work"
+  ${NAME} switch work           # make it active
+  ${NAME} -a personal unread    # run one command as another account
 `.trim();
 
 const rawArgs = process.argv.slice(2);
@@ -52,11 +61,28 @@ if (rawArgs.includes("--version")) {
 }
 
 const verbose = rawArgs.includes("--verbose") || rawArgs.includes("-v");
+
+// pull out --account/-a <name> before positional parsing
+let accountFlag: string | undefined;
+const accIdx = rawArgs.findIndex((a) => a === "--account" || a === "-a");
+if (accIdx !== -1) {
+  accountFlag = rawArgs[accIdx + 1];
+  rawArgs.splice(accIdx, accountFlag ? 2 : 1);
+}
+
 const args = rawArgs.filter((a) => !a.startsWith("-"));
 const [command, ...rest] = args;
 
 if (verbose) {
   setVerbose(true);
+}
+
+// fold a pre-multi-account session.txt into account "default" (one-time, no-op after)
+migrateLegacyIfNeeded();
+
+// an explicit --account pins this invocation to that account's session
+if (accountFlag) {
+  setSessionPath(accountSessionPath(accountFlag));
 }
 
 async function main() {
@@ -110,7 +136,23 @@ async function main() {
       break;
 
     case "login":
-      await login();
+      await login(rest[0]);
+      break;
+
+    case "accounts":
+      await accounts();
+      break;
+
+    case "switch":
+      await switchAccount(rest[0]);
+      break;
+
+    case "whoami":
+      await whoami();
+      break;
+
+    case "logout":
+      await logout(rest[0]);
       break;
 
     case "config":

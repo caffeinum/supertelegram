@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { getCurrentAccount, accountSessionPath } from "./accounts";
 
 const CONFIG_DIR = join(homedir(), ".supertelegram");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
@@ -44,24 +45,30 @@ export function setConfig(key: string, value: string) {
 
 export function getSessionPath(customPath?: string): string {
   // precedence:
-  // 1. custom path from flag
+  // 1. custom path from flag (--account resolves to one of these)
   // 2. TELEGRAM_SESSION env var
-  // 3. global ~/.supertelegram/session.txt
+  // 3. current account's session (~/.supertelegram/accounts/<name>.txt)
   // 4. local ./session.txt (backwards compat)
-  
+  // 5. global ~/.supertelegram/session.txt (legacy default)
+
   if (customPath) {
     return customPath;
   }
-  
+
   if (process.env.TELEGRAM_SESSION) {
     return process.env.TELEGRAM_SESSION;
   }
-  
+
+  const current = getCurrentAccount();
+  if (current) {
+    return accountSessionPath(current);
+  }
+
   // check if local session.txt exists (backwards compat)
   if (existsSync("./session.txt")) {
     return "./session.txt";
   }
-  
+
   return SESSION_FILE;
 }
 
