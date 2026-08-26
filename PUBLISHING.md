@@ -2,9 +2,10 @@
 
 ## automated (github actions) — preferred
 
-CI publishes to npm on every version tag. one-time setup: add a repo secret
-`NPM_TOKEN` (npmjs.com → Access Tokens → **Automation** token) under
-Settings → Secrets and variables → Actions.
+CI publishes to npm on every version tag. auth is via **OIDC trusted
+publishing** — no `NPM_TOKEN` secret. one-time setup: on npmjs.com, open the
+package → Settings → Trusted Publishing, and add a GitHub Actions publisher
+pointing at `caffeinum/supertelegram`, workflow `publish.yml`.
 
 then to release:
 ```bash

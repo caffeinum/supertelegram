@@ -2,7 +2,8 @@ name: publish
 
 # publishes to npm when you push a version tag (e.g. v0.5.0) or cut a GitHub release.
 # tag the current version with:  git tag v$(node -p "require('./package.json').version") && git push --tags
-# requires repo secret NPM_TOKEN (npmjs.com > Access Tokens > Automation).
+# auth is via npm OIDC trusted publishing (no NPM_TOKEN) — configure a trusted
+# publisher for this package on npmjs.com pointing at this repo + workflow.
 
 on:
   push:
@@ -33,6 +34,10 @@ jobs:
           node-version: 20
           registry-url: "https://registry.npmjs.org"
 
+      # OIDC trusted publishing needs a recent npm
+      - name: upgrade npm
+        run: npm install -g npm@latest
+
       - name: guard — tag matches package.json version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -42,7 +47,6 @@ jobs:
             exit 1
           fi
 
+      # no NODE_AUTH_TOKEN: npm authenticates via OIDC (id-token: write above)
       - name: publish
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
