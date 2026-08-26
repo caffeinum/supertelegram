@@ -4,6 +4,14 @@
   "description": "telegram cli for humans and bots",
   "module": "index.ts",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/caffeinum/supertelegram.git"
+  },
+  "homepage": "https://github.com/caffeinum/supertelegram#readme",
+  "bugs": {
+    "url": "https://github.com/caffeinum/supertelegram/issues"
+  },
   "bin": {
     "telegram": "src/cli/run.ts"
   },
