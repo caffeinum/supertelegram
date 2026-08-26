@@ -1,6 +1,22 @@
 # publishing guide
 
-## setup
+## automated (github actions) — preferred
+
+CI publishes to npm on every version tag. one-time setup: add a repo secret
+`NPM_TOKEN` (npmjs.com → Access Tokens → **Automation** token) under
+Settings → Secrets and variables → Actions.
+
+then to release:
+```bash
+# bump version in package.json first, commit, then:
+git tag "v$(node -p "require('./package.json').version")"
+git push --tags
+```
+the `.github/workflows/publish.yml` workflow checks the tag matches
+package.json, installs, and runs `npm publish --access public --provenance`.
+you can also trigger it manually from the Actions tab (workflow_dispatch).
+
+## manual setup
 
 1. login to npm:
 ```bash
