@@ -10,6 +10,7 @@ const SESSION_FILE = join(CONFIG_DIR, "session.txt");
 export interface Config {
   appId?: string;
   appHash?: string;
+  wss?: string;
 }
 
 function ensureConfigDir() {
@@ -70,6 +71,12 @@ export function getSessionPath(customPath?: string): string {
   }
 
   return SESSION_FILE;
+}
+
+export function wssEnabled(): boolean {
+  const env = process.env.TELEGRAM_WSS;
+  if (env !== undefined) return env === "1" || env === "true";
+  return getConfig().wss === "true";
 }
 
 export function getApiCredentials(): { appId: number; appHash: string } | null {

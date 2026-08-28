@@ -4,6 +4,7 @@ import { Logger } from "telegram/extensions/Logger";
 import type { LogLevel } from "telegram/extensions/Logger";
 import { loadSession, saveSession } from "../session/storage";
 import { getApiCredentials } from "../config/manager";
+import { wssEnabled, wssClientParams, applyWss, restoreTcpDc, explainConnectionError } from "./wss";
 
 let verbose = false;
 
@@ -46,9 +47,17 @@ export async function getClient(): Promise<TelegramClient> {
   client = new TelegramClient(session, creds.appId, creds.appHash, {
     connectionRetries: 5,
     baseLogger: new SilentLogger(),
+    ...(wssEnabled() ? wssClientParams : {}),
   });
 
-  await client.connect();
+  if (wssEnabled()) applyWss(client);
+  else restoreTcpDc(client);
+
+  try {
+    await client.connect();
+  } catch (err) {
+    throw explainConnectionError(err);
+  }
   return client;
 }
 

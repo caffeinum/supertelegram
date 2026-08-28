@@ -128,6 +128,22 @@ TELEGRAM_SESSION=./custom.txt telegram send @friend "hey"
 4. `./session.txt` (backwards compat)
 5. `~/.supertelegram/session.txt` (legacy default)
 
+## websocket transport (blocked mtproto)
+
+some networks (cloud sandboxes, agent runtimes, corporate proxies) let tcp reach
+telegram DC ips but kill the raw mtproto handshake — login dies with
+`Not connected` on `ReqPqMulti`. switch to the same wss path web telegram uses:
+
+```bash
+TELEGRAM_WSS=1 telegram login
+# or persist it
+telegram config set wss true
+```
+
+this talks to `*.web.telegram.org/apiws` over tls 443 with the obfuscated
+transport. login, messages and media all work; only the transport changes.
+needs bun or node >= 22 (native WebSocket).
+
 ## development
 
 clone repo and install:

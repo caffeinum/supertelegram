@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { explainConnectionError } from "../client/wss";
 import { send, read, dialogs, unread, reply, login, config, sendFile, downloadMedia, accounts, switchAccount, logout, whoami } from "./commands";
 import { setVerbose, setSessionPath } from "../client/telegram";
 import { migrateLegacyIfNeeded, accountSessionPath } from "../config/accounts";
@@ -26,7 +27,7 @@ commands:
   switch <name>              switch the active account
   whoami                     show the active account
   logout [name]              remove an account (default: current)
-  config set <key> <val>     set API credentials (appId, appHash)
+  config set <key> <val>     set API credentials (appId, appHash) or wss true
 
 options:
   -a, --account <name>     run this command as a specific account
@@ -170,7 +171,10 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("error:", err.message);
+function die(err: unknown) {
+  console.error("error:", explainConnectionError(err).message);
   process.exit(1);
-});
+}
+
+process.on("unhandledRejection", die);
+main().catch(die);

@@ -10,7 +10,7 @@ import {
   downloadMedia as telegramDownloadMedia,
 } from "../client/telegram";
 import { askPhoneNumber, askPhoneCode, askPassword, askAppId, askAppHash } from "./prompts";
-import { getApiCredentials, setConfig } from "../config/manager";
+import { getApiCredentials, getConfig, setConfig } from "../config/manager";
 import {
   listAccounts,
   setCurrentAccount,
@@ -294,6 +294,8 @@ export async function config(action?: string, key?: string, value?: string) {
       console.log(cfg.appId);
     } else if (key === "appHash" && cfg) {
       console.log(cfg.appHash);
+    } else if (key === "wss") {
+      console.log(String(getConfig().wss === "true"));
     } else {
       console.log("not found");
     }
@@ -303,6 +305,7 @@ export async function config(action?: string, key?: string, value?: string) {
   console.log("usage:");
   console.log("  telegram config set appId <id>");
   console.log("  telegram config set appHash <hash>");
+  console.log("  telegram config set wss true    (websocket transport for networks blocking mtproto)");
   console.log("  telegram config get appId");
 }
 
