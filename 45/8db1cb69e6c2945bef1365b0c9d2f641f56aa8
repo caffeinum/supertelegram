@@ -1,0 +1,19 @@
+package.json
+  s_d1695fb5a78843::t_d0f9c59b68e279 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "458db1cb69e6c2945bef1365b0c9d2f641f56aa8",
+  "prompts": {},
+  "sessions": {
+    "s_d1695fb5a78843": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8bdfe52a-8970-4304-9626-e90179175e77",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
