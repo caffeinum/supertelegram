@@ -1,0 +1,21 @@
+.github/workflows/publish.yml
+  s_16629319d5ff14::t_c745492c8002d7 1-48
+PUBLISHING.md
+  s_16629319d5ff14::t_2fd18a20a7e409 3-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "5333125e0a7f048ad9128448aa2b0920c32d65d8",
+  "prompts": {},
+  "sessions": {
+    "s_16629319d5ff14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "178efc37-68c6-4170-ba93-827188df0ccd",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}

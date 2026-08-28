@@ -1,0 +1,32 @@
+src/client/telegram.ts
+  s_16629319d5ff14::t_c3f2ebae152e7b 79-125,131-132,141-142
+  s_16629319d5ff14::t_fe76831d03df38 169-170
+tsconfig.json
+  s_16629319d5ff14::t_73b6531bf61608 14
+src/cli/commands.ts
+  s_16629319d5ff14::t_eb6e8c353bcc80 74-81,83
+package.json
+  s_16629319d5ff14::t_5740962dcf2528 3
+README.md
+  s_16629319d5ff14::t_69b909283ab578 35,37-39
+  s_16629319d5ff14::t_a29f344f5b874a 50
+src/cli/run.ts
+  s_16629319d5ff14::t_5cb13bc01d8fde 4,6
+  s_16629319d5ff14::t_67492f966f1511 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "bd6d9fbdba627e8564b0520fc279304a27679ded",
+  "prompts": {},
+  "sessions": {
+    "s_16629319d5ff14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "178efc37-68c6-4170-ba93-827188df0ccd",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
