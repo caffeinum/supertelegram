@@ -1,12 +1,15 @@
 name: publish
 
-# publishes to npm when you push a version tag (e.g. v0.5.0) or cut a GitHub release.
-# tag the current version with:  git tag v$(node -p "require('./package.json').version") && git push --tags
+# publishes to npm whenever main carries a package.json version that isn't on npm yet
+# (bump version, push main — the workflow publishes and creates the vX.Y.Z tag).
+# also runs on a pushed version tag / github release / manual dispatch.
 # auth is via npm OIDC trusted publishing (no NPM_TOKEN) — configure a trusted
 # publisher for this package on npmjs.com pointing at this repo + workflow.
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   release:
@@ -17,29 +20,45 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write # create the version tag
       id-token: write # enables npm provenance
     steps:
       - uses: actions/checkout@v4
 
+      - name: skip if this version is already on npm
+        id: check
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "supertelegram@${VERSION}" version >/dev/null 2>&1; then
+            echo "supertelegram@${VERSION} already published, nothing to do"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
       - uses: oven-sh/setup-bun@v2
+        if: steps.check.outputs.publish == 'true'
         with:
           bun-version: latest
 
       - name: install deps
+        if: steps.check.outputs.publish == 'true'
         run: bun install --frozen-lockfile
 
       - uses: actions/setup-node@v4
+        if: steps.check.outputs.publish == 'true'
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
 
       # OIDC trusted publishing needs a recent npm (node 24 ships one, but pin latest)
       - name: upgrade npm
+        if: steps.check.outputs.publish == 'true'
         run: npm install -g npm@latest
 
       - name: guard — tag matches package.json version
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.check.outputs.publish == 'true' && startsWith(github.ref, 'refs/tags/')
         run: |
           PKG_VERSION="v$(node -p "require('./package.json').version")"
           if [ "$PKG_VERSION" != "${GITHUB_REF_NAME}" ]; then
@@ -49,4 +68,12 @@ jobs:
 
       # no NODE_AUTH_TOKEN: npm authenticates via OIDC (id-token: write above)
       - name: publish
+        if: steps.check.outputs.publish == 'true'
         run: npm publish --access public --provenance
+
+      - name: tag the release
+        if: steps.check.outputs.publish == 'true' && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG="v${{ steps.check.outputs.version }}"
+          git tag "$TAG"
+          git push origin "$TAG"
