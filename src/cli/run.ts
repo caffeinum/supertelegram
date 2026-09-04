@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { explainConnectionError } from "../client/wss";
 import { send, read, dialogs, unread, reply, login, config, sendFile, downloadMedia, accounts, switchAccount, logout, whoami } from "./commands";
-import { setVerbose, setSessionPath } from "../client/telegram";
+import { setVerbose, setSessionPath, isTearingDown } from "../client/telegram";
 import { migrateLegacyIfNeeded, accountSessionPath } from "../config/accounts";
 import pkg from "../../package.json";
 
@@ -149,7 +149,7 @@ async function main() {
       break;
 
     case "whoami":
-      await whoami();
+      await whoami(accountFlag);
       break;
 
     case "logout":
@@ -176,5 +176,12 @@ function die(err: unknown) {
   process.exit(1);
 }
 
-process.on("unhandledRejection", die);
+// gramjs's update loop can reject with TIMEOUT as the connection is torn down,
+// AFTER the command already succeeded. once we're tearing down, that rejection
+// is noise — swallowing it keeps the exit code honest so callers don't retry
+// and double-send. a TIMEOUT before teardown (e.g. a stuck send) still fails.
+process.on("unhandledRejection", (err) => {
+  if (isTearingDown()) return;
+  die(err);
+});
 main().catch(die);

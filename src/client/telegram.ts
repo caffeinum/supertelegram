@@ -22,9 +22,18 @@ class SilentLogger extends Logger {
 
 let client: TelegramClient | null = null;
 let customSessionPath: string | undefined;
+let tearingDown = false;
 
 export function setSessionPath(path: string) {
   customSessionPath = path;
+}
+
+// true once disconnect() has begun. gramjs's background update loop can reject
+// with a TIMEOUT while the connection is torn down — that happens AFTER the
+// command's real work has committed, so callers use this to tell benign
+// teardown noise apart from a genuine failure.
+export function isTearingDown(): boolean {
+  return tearingDown;
 }
 
 export async function getClient(): Promise<TelegramClient> {
@@ -187,7 +196,14 @@ export async function getDialogs(limit = 10) {
 
 export async function disconnect(): Promise<void> {
   if (client) {
-    await client.disconnect();
+    tearingDown = true;
+    try {
+      await client.disconnect();
+      // destroy() also tears down the update loop; ignore if the build lacks it
+      await (client as unknown as { destroy?: () => Promise<void> }).destroy?.();
+    } catch {
+      // teardown errors are never actionable — the work already committed
+    }
     client = null;
   }
 }

@@ -252,17 +252,22 @@ export async function logout(name?: string) {
   );
 }
 
-export async function whoami() {
-  const current = getCurrentAccount();
+// `pinned` is the --account/-a override: whoami must report the session it's
+// actually running as, not the registry's current account.
+export async function whoami(pinned?: string) {
+  const current = pinned || getCurrentAccount();
   if (!current) {
     console.log("not logged in. run: telegram login");
     return;
   }
 
+  const isRegistered = listAccounts().some((a) => a.name === current);
   let meta = listAccounts().find((a) => a.name === current)?.meta;
 
-  // backfill identity for accounts migrated without metadata
-  if (meta && !meta.username && !meta.name && (await isLoggedIn())) {
+  // resolve identity from the live session when metadata is missing —
+  // either a migrated account with no cached details, or an -a account
+  // that isn't in the registry at all.
+  if ((!meta || (!meta.username && !meta.name)) && (await isLoggedIn())) {
     const client = await getClient();
     const me = await client.getMe();
     const fullName = [me.firstName, me.lastName].filter(Boolean).join(" ");
@@ -271,7 +276,7 @@ export async function whoami() {
       userId: me.id?.toString(),
       name: fullName || undefined,
     };
-    registerAccount(current, meta, false);
+    if (isRegistered) registerAccount(current, meta, false);
     await disconnect();
   }
 
