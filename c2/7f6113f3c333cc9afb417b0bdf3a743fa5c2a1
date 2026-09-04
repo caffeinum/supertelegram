@@ -1,0 +1,37 @@
+src/client/telegram.ts
+  s_16629319d5ff14::t_e5bed17fb6b1db 25,31-36
+  s_16629319d5ff14::t_1085843e04764b 199-206
+  s_eacdf770d99162::t_1cbf6c7b5f8f8f 37-38
+src/cli/commands.ts
+  s_16629319d5ff14::t_24a5b53b3924a0 255-258,264,267-270,279
+package.json
+  s_16629319d5ff14::t_c1bd2446f864d5 3
+src/cli/run.ts
+  s_16629319d5ff14::t_3cc5eee6b0e96e 152
+  s_16629319d5ff14::t_77a3b4fcf882a7 179-186
+  s_16629319d5ff14::t_2799cdf0586049 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c27f6113f3c333cc9afb417b0bdf3a743fa5c2a1",
+  "prompts": {},
+  "sessions": {
+    "s_16629319d5ff14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "178efc37-68c6-4170-ba93-827188df0ccd",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    },
+    "s_eacdf770d99162": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "37e46d39-19cd-49f9-831e-7abcb9428a8d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
