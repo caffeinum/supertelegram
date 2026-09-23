@@ -1,0 +1,1 @@
+{ "args": ["-a", "caffeinum", "whoami"], "expect": "work", "contains": "@caffeinum", "why": "subject alive" }

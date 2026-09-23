@@ -1,0 +1,146 @@
+[
+  {
+    "args": [
+      "read",
+      "Covers"
+    ],
+    "expect": "fix",
+    "contains": "-a caffeinum",
+    "why": "chat lives on another account — say which"
+  },
+  {
+    "args": [
+      "list",
+      "candy pm"
+    ],
+    "expect": "work",
+    "why": "list/search by name"
+  },
+  {
+    "args": [
+      "list"
+    ],
+    "expect": "work",
+    "contains": "[id:",
+    "why": "list chats"
+  },
+  {
+    "args": [
+      "dialogs",
+      "--account",
+      "caffeinum",
+      "--n=20"
+    ],
+    "expect": "fix",
+    "contains": "--limit",
+    "why": "unknown flag must not be silently ignored"
+  },
+  {
+    "args": [
+      "dialogs",
+      "--account",
+      "caffeinum",
+      "--limit=20"
+    ],
+    "expect": "work",
+    "why": "named limit actually applies",
+    "rows": 20
+  },
+  {
+    "args": [
+      "search",
+      "Covers",
+      "--account",
+      "caffeinum"
+    ],
+    "expect": "work",
+    "contains": "Covers!",
+    "why": "search chats by name, not just top N"
+  },
+  {
+    "args": [
+      "dialogs",
+      "--account",
+      "caffeinum",
+      "--help"
+    ],
+    "expect": "help",
+    "contains": "dialogs",
+    "why": "per-command help"
+  },
+  {
+    "args": [
+      "read",
+      "-5078309102"
+    ],
+    "expect": "fix",
+    "contains": "-a caffeinum",
+    "why": "negative id is a chat, not a flag"
+  },
+  {
+    "args": [
+      "read",
+      "-5078309102",
+      "-a",
+      "caffeinum"
+    ],
+    "expect": "work",
+    "contains": "8qcKRkaDH5Ry1PfY6nhELqJBZdWDRHWopuaBEupiN69H",
+    "why": "read by negative id"
+  },
+  {
+    "args": [
+      "read",
+      "-5078309102",
+      "1",
+      "-a",
+      "caffeinum"
+    ],
+    "expect": "work",
+    "why": "negative id + positional limit"
+  },
+  {
+    "args": [
+      "read",
+      "Covers!",
+      "1"
+    ],
+    "expect": "fix",
+    "contains": "-a caffeinum",
+    "why": "name on another account"
+  },
+  {
+    "args": [
+      "read",
+      "Covers",
+      "--account",
+      "caffeinum"
+    ],
+    "expect": "work",
+    "contains": "8qcKRkaDH5Ry1PfY6nhELqJBZdWDRHWopuaBEupiN69H",
+    "why": "read by partial name"
+  },
+  {
+    "args": [
+      "info",
+      "-5078309102",
+      "-a",
+      "caffeinum"
+    ],
+    "expect": "work",
+    "contains": "@caffeinum",
+    "why": "group members with usernames"
+  },
+  {
+    "args": [
+      "read",
+      "Covers",
+      "-a",
+      "caffeinum",
+      "--limit=3"
+    ],
+    "expect": "work",
+    "why": "named limit on read actually applies",
+    "rows": 3
+  }
+]

@@ -29,39 +29,51 @@ that's it! now you're ready to use telegram from the cli.
 
 ## usage
 
+### find a chat
+
+chats are addressed by `@username`, numeric id, or title. ids come from `list`.
+
+```bash
+telegram list                     # 100 most recent chats: title, @username, [id], type, unread
+telegram list covers              # chats whose title/@username contains "covers" (alias: search)
+telegram list -n 20 --offset 20   # page through
+telegram info -5078309102         # group details + members (names, @usernames, ids, roles)
+telegram info -1001364634660 -q aleks   # search members of a big group
+telegram info @username           # a person's profile
+```
+
+a title must match exactly one chat — if it matches several you get the list of
+ids and exit code 4, never a guess. if the chat isn't in this account, the error
+tells you which of your other accounts has it and the exact command to run.
+
 ### messages
 
 ```bash
-# send a message — chat can be @username, a numeric id, or a name
+telegram read @username           # last 100 messages, newest last, with names and #ids
+telegram read -5078309102 -n 20   # by id, 20 messages
+telegram read Covers --before 2742267   # page back (the output prints the next command)
+telegram read Covers --after 2742267    # page forward
+
 telegram send @username "hello there"
-telegram send 7069934904 "hey"      # by id (for chats with no username)
-telegram send "Ben YC" "hello"      # by name (partial, case-insensitive)
-telegram send "me" "note to self"   # use "me" for saved messages
+telegram send -5078309102 "hi all"      # by id (groups have negative ids)
+telegram send me "note to self"         # saved messages
+telegram send me -- "- starts with a dash"
 
-# read messages (shows [photo], [video], [file] indicators)
-telegram read @username 10
-
-# reply to latest message
-telegram reply "John" "hey back!"
-
-# get unread messages (json output with media info)
-telegram unread 20
-
-# list dialogs (shows @username and [id: ...] for each chat)
-telegram dialogs 10
+telegram reply "John" "hey back!"       # send + mark the chat read
+telegram unread -n 50                   # unread messages as json
 ```
+
+every command takes `--json` for machine-readable output, and `--help` for its own
+flags. positional limits (`read @x 5`, `dialogs 20`) still work.
+
+exit codes: `0` ok · `1` runtime error · `2` usage · `3` chat/message not found · `4` ambiguous chat
 
 ### media (images/videos/files)
 
 ```bash
-# send a file with optional caption
-telegram send-file @username photo.jpg
-telegram send-file "me" video.mp4 "check this out!"
-
-# download media from a message
-# (use 'read' command to get message IDs)
-telegram download @username 12345 ./downloaded.jpg
-telegram download "me" 12346  # auto-named file
+telegram send-file @username photo.jpg "check this out!"
+telegram download @username 12345 ./downloaded.jpg   # ids are the #numbers from read
+telegram download me 12346                           # auto-named, never overwrites
 ```
 
 ### config

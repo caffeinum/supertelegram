@@ -1,179 +1,269 @@
 #!/usr/bin/env bun
 import { explainConnectionError } from "../client/wss";
-import { send, read, dialogs, unread, reply, login, config, sendFile, downloadMedia, accounts, switchAccount, logout, whoami } from "./commands";
+import { login, config, accounts, switchAccount, logout, whoami } from "./commands";
+import { send, sendFile, reply, read, list, info, unread, downloadMedia, type Out } from "./chat";
 import { setVerbose, setSessionPath, isTearingDown } from "../client/telegram";
 import { migrateLegacyIfNeeded, accountSessionPath } from "../config/accounts";
+import { parse, findCommand, intFlag, closest, type FlagSpec, type Parsed } from "./args";
+import { CliError, usageError } from "./errors";
 import pkg from "../../package.json";
 
-const VERSION = pkg.version;
 const NAME = "telegram";
 
-const HELP = `
-${NAME} - telegram cli for humans and bots
+const GLOBAL_FLAGS: FlagSpec[] = [
+  { name: "account", short: "a", value: "name", desc: "run this command as a specific account" },
+  { name: "json", desc: "machine-readable output" },
+  { name: "verbose", short: "v", desc: "show debug logs" },
+  { name: "help", short: "h", desc: "show help" },
+  { name: "version", desc: "show version" },
+];
 
-usage:
-  ${NAME} <command> [options]
+const LIMIT: FlagSpec = { name: "limit", short: "n", value: "n", desc: "how many to show" };
+const OFFSET: FlagSpec = { name: "offset", value: "n", desc: "skip this many (pagination)" };
 
-commands:
-  send <chat> <message>      send a message (chat = @username, id, or name)
-  send-file <chat> <path>    send a file/image/video (optional: caption)
-  read <chat> [limit]        read messages from a chat (default: 10)
-  download <chat> <id> [out] download media from message id
-  reply <chat> <message>     reply to a chat by name (partial match)
-  dialogs [limit]            list recent dialogs (default: 10)
-  unread [limit]             show unread messages as json (default: 20)
-  login [name]               authenticate with telegram (into a named account)
-  accounts                   list logged-in accounts (* = current)
-  switch <name>              switch the active account
-  whoami                     show the active account
-  logout [name]              remove an account (default: current)
-  config set <key> <val>     set API credentials (appId, appHash) or wss true
-
-options:
-  -a, --account <name>     run this command as a specific account
-  -v, --verbose            show debug logs
-  -h, --help               show this help
-  --version                show version
-
-examples:
-  ${NAME} send @username "hello there"
-  ${NAME} send-file @username photo.jpg "check this out"
-  ${NAME} read @username 5
-  ${NAME} download @username 12345 ./photo.jpg
-  ${NAME} reply "John" "hey!"
-  ${NAME} unread
-  ${NAME} dialogs 20
-  ${NAME} login work            # log into a second account named "work"
-  ${NAME} switch work           # make it active
-  ${NAME} -a personal unread    # run one command as another account
-`.trim();
-
-const rawArgs = process.argv.slice(2);
-
-// handle help/version first
-if (rawArgs.includes("-h") || rawArgs.includes("--help") || rawArgs.length === 0) {
-  console.log(HELP);
-  process.exit(0);
+interface Command {
+  name: string;
+  aliases?: string[];
+  args: string;
+  summary: string;
+  flags?: FlagSpec[];
+  examples: string[];
+  min?: number;
+  run(p: Parsed, out: Out): Promise<void>;
 }
 
-if (rawArgs.includes("--version")) {
-  console.log(`${NAME} v${VERSION}`);
-  process.exit(0);
+// back-compat: `read @x 5` / `dialogs 20` / `unread 20` still take a positional limit
+function limitFrom(p: Parsed, positional: string | undefined, fallback: number, cmd: string): number {
+  const named = intFlag(p.flags.limit, "limit", fallback, cmd, 1);
+  if (positional === undefined) return named;
+  const pos = intFlag(positional, "limit", fallback, cmd, 1);
+  if (p.flags.limit !== undefined && pos !== named) throw usageError(`limit given twice (${pos} and --limit ${named}). use one.`);
+  return pos;
 }
 
-const verbose = rawArgs.includes("--verbose") || rawArgs.includes("-v");
+const COMMANDS: Command[] = [
+  {
+    name: "list",
+    aliases: ["dialogs", "search"],
+    args: "[query]",
+    summary: "list chats, or find chats whose title/@username contains query",
+    flags: [{ ...LIMIT, desc: "how many chats (default 100)" }, OFFSET],
+    examples: ["list", "list covers -a work", "list -n 20 --offset 20", "list --json"],
+    async run(p, out) {
+      const numericLimit = p.command === "dialogs" && p.positionals.length === 1 && /^\d+$/.test(p.positionals[0]!);
+      const query = numericLimit ? undefined : p.positionals.join(" ") || undefined;
+      const limit = limitFrom(p, numericLimit ? p.positionals[0] : undefined, 100, p.command!);
+      await list(query, { ...out, limit, offset: intFlag(p.flags.offset, "offset", 0, p.command!) }, p.command);
+    },
+  },
+  {
+    name: "read",
+    args: "<chat> [limit]",
+    summary: "read messages, newest last (chat = @username, id, or title)",
+    flags: [
+      { ...LIMIT, desc: "how many messages (default 100)" },
+      { name: "before", value: "msg-id", desc: "only messages older than this id (page back)" },
+      { name: "after", value: "msg-id", desc: "only messages newer than this id (page forward)" },
+    ],
+    examples: ["read @username", "read -5078309102 -n 20", "read Covers -a work --before 2742300"],
+    min: 1,
+    async run(p, out) {
+      const before = p.flags.before === undefined ? undefined : intFlag(p.flags.before, "before", 0, "read");
+      const after = p.flags.after === undefined ? undefined : intFlag(p.flags.after, "after", 0, "read");
+      if (before !== undefined && after !== undefined) throw usageError("use --before or --after, not both");
+      await read(p.positionals[0]!, { ...out, limit: limitFrom(p, p.positionals[1], 100, "read"), before, after });
+    },
+  },
+  {
+    name: "info",
+    aliases: ["members"],
+    args: "<chat>",
+    summary: "chat details and members (names, @usernames, ids, roles); user profile for a person",
+    flags: [
+      { ...LIMIT, desc: "how many members (default 100)" },
+      OFFSET,
+      { name: "query", short: "q", value: "text", desc: "only members whose name matches" },
+    ],
+    examples: ["info -5078309102", "info @username", "info 'Covers!' -q aleks"],
+    min: 1,
+    async run(p, out) {
+      await info(p.positionals[0]!, {
+        ...out,
+        limit: intFlag(p.flags.limit, "limit", 100, "info", 1),
+        offset: intFlag(p.flags.offset, "offset", 0, "info"),
+        query: typeof p.flags.query === "string" ? p.flags.query : undefined,
+      });
+    },
+  },
+  {
+    name: "send",
+    args: "<chat> <message>",
+    summary: "send a message (chat must match exactly one chat)",
+    examples: ['send @username "hello there"', 'send -5078309102 "hi all"', 'send me -- "- a note starting with a dash"'],
+    min: 2,
+    run: (p, out) => send(p.positionals[0]!, p.positionals.slice(1).join(" "), out),
+  },
+  {
+    name: "send-file",
+    args: "<chat> <path> [caption]",
+    summary: "send a file/image/video",
+    examples: ['send-file @username photo.jpg "check this out"'],
+    min: 2,
+    run: (p, out) => sendFile(p.positionals[0]!, p.positionals[1]!, p.positionals.slice(2).join(" ") || undefined, out),
+  },
+  {
+    name: "reply",
+    args: "<chat> <message>",
+    summary: "send and mark the chat as read",
+    examples: ['reply "John" "hey!"'],
+    min: 2,
+    run: (p, out) => reply(p.positionals[0]!, p.positionals.slice(1).join(" "), out),
+  },
+  {
+    name: "download",
+    args: "<chat> <msg-id> [out-path]",
+    summary: "download media from a message (ids are the #numbers in read)",
+    examples: ["download @username 12345 ./photo.jpg"],
+    min: 2,
+    run: (p, out) => downloadMedia(p.positionals[0]!, intFlag(p.positionals[1], "msg-id", 0, "download"), p.positionals[2], out),
+  },
+  {
+    name: "unread",
+    args: "[limit]",
+    summary: "unread messages as json, across the most recent chats",
+    flags: [{ ...LIMIT, desc: "how many recent chats to check (default 20)" }],
+    examples: ["unread", "unread -n 50"],
+    run: (p) => unread(limitFrom(p, p.positionals[0], 20, "unread")),
+  },
+  {
+    name: "login",
+    args: "[name]",
+    summary: "authenticate with telegram (into a named account)",
+    examples: ["login", "login work"],
+    run: (p) => login(p.positionals[0]),
+  },
+  { name: "accounts", args: "", summary: "list logged-in accounts (* = current)", examples: ["accounts"], run: () => accounts() },
+  { name: "switch", args: "<name>", summary: "switch the active account", examples: ["switch work"], min: 1, run: (p) => switchAccount(p.positionals[0]) },
+  { name: "whoami", args: "", summary: "show the account this command runs as", examples: ["whoami", "whoami -a work"], run: (p) => whoami(p.flags.account as string | undefined) },
+  { name: "logout", args: "[name]", summary: "remove an account (default: current)", examples: ["logout work"], run: (p) => logout(p.positionals[0]) },
+  {
+    name: "config",
+    args: "set|get <key> [value]",
+    summary: "set API credentials (appId, appHash) or wss true",
+    examples: ["config set appId 12345", "config set wss true"],
+    run: (p) => config(p.positionals[0], p.positionals[1], p.positionals[2]),
+  },
+];
 
-// pull out --account/-a <name> before positional parsing
-let accountFlag: string | undefined;
-const accIdx = rawArgs.findIndex((a) => a === "--account" || a === "-a");
-if (accIdx !== -1) {
-  accountFlag = rawArgs[accIdx + 1];
-  rawArgs.splice(accIdx, accountFlag ? 2 : 1);
+function findSpec(name: string): Command | undefined {
+  return COMMANDS.find((c) => c.name === name || c.aliases?.includes(name));
 }
 
-const args = rawArgs.filter((a) => !a.startsWith("-"));
-const [command, ...rest] = args;
-
-if (verbose) {
-  setVerbose(true);
+function flagLine(f: FlagSpec): string {
+  const head = `${f.short ? `-${f.short}, ` : "    "}--${f.name}${f.value ? ` <${f.value}>` : ""}`;
+  return `  ${head.padEnd(26)} ${f.desc}`;
 }
 
-// fold a pre-multi-account session.txt into account "default" (one-time, no-op after)
-migrateLegacyIfNeeded();
-
-// an explicit --account pins this invocation to that account's session
-if (accountFlag) {
-  setSessionPath(accountSessionPath(accountFlag));
+function commandHelp(c: Command): string {
+  return [
+    `usage: ${NAME} ${c.name} ${c.args}`.trimEnd(),
+    "",
+    c.summary,
+    ...(c.aliases ? [`aliases: ${c.aliases.join(", ")}`] : []),
+    "",
+    "options:",
+    ...[...(c.flags ?? []), ...GLOBAL_FLAGS.filter((f) => f.name !== "version")].map(flagLine),
+    "",
+    "examples:",
+    ...c.examples.map((e) => `  ${NAME} ${e}`),
+  ].join("\n");
 }
 
-async function main() {
-  switch (command) {
-    case "send":
-      if (rest.length < 2 || !rest[0]) {
-        console.error("usage: telegram send <chat> <message>");
-        process.exit(1);
-      }
-      await send(rest[0], rest.slice(1).join(" "));
-      break;
+const HELP = [
+  `${NAME} - telegram cli for humans and bots`,
+  "",
+  "usage:",
+  `  ${NAME} <command> [options]`,
+  "",
+  "commands:",
+  ...COMMANDS.map((c) => `  ${`${c.name} ${c.args}`.padEnd(28)} ${c.summary}`),
+  "",
+  "options:",
+  ...GLOBAL_FLAGS.map(flagLine),
+  "",
+  `chats are addressed by @username, numeric id (from '${NAME} list'), or title.`,
+  `details for any command: ${NAME} <command> --help`,
+  "",
+  "examples:",
+  `  ${NAME} list covers              # find a chat, get its id`,
+  `  ${NAME} read -5078309102 -n 20`,
+  `  ${NAME} info -5078309102         # who's in the group`,
+  `  ${NAME} send @username "hello there"`,
+  `  ${NAME} -a work unread           # run one command as another account`,
+].join("\n");
 
-    case "read":
-      if (rest.length < 1 || !rest[0]) {
-        console.error("usage: telegram read <chat> [limit]");
-        process.exit(1);
-      }
-      await read(rest[0], rest[1] ? Number.parseInt(rest[1]) : 10);
-      break;
+function dispatch(): { spec: Command; parsed: Parsed } | undefined {
+  const raw = process.argv.slice(2);
+  const at = findCommand(raw, GLOBAL_FLAGS);
+  const name = at === -1 ? undefined : raw[at]!;
+  const rest = at === -1 ? raw : [...raw.slice(0, at), ...raw.slice(at + 1)];
 
-    case "dialogs":
-      await dialogs(rest[0] ? Number.parseInt(rest[0]) : 10);
-      break;
-
-    case "unread":
-      await unread(rest[0] ? Number.parseInt(rest[0]) : 20);
-      break;
-
-    case "reply":
-      if (rest.length < 2 || !rest[0]) {
-        console.error("usage: telegram reply <chat> <message>");
-        process.exit(1);
-      }
-      await reply(rest[0], rest.slice(1).join(" "));
-      break;
-
-    case "send-file":
-      if (rest.length < 2 || !rest[0] || !rest[1]) {
-        console.error("usage: telegram send-file <chat> <path> [caption]");
-        process.exit(1);
-      }
-      await sendFile(rest[0], rest[1], rest.slice(2).join(" ") || undefined);
-      break;
-
-    case "download":
-      if (rest.length < 2 || !rest[0] || !rest[1]) {
-        console.error("usage: telegram download <chat> <message-id> [output-path]");
-        process.exit(1);
-      }
-      await downloadMedia(rest[0], Number.parseInt(rest[1]), rest[2]);
-      break;
-
-    case "login":
-      await login(rest[0]);
-      break;
-
-    case "accounts":
-      await accounts();
-      break;
-
-    case "switch":
-      await switchAccount(rest[0]);
-      break;
-
-    case "whoami":
-      await whoami(accountFlag);
-      break;
-
-    case "logout":
-      await logout(rest[0]);
-      break;
-
-    case "config":
-      await config(rest[0], rest[1], rest[2]);
-      break;
-
-    case "help":
-      console.log(HELP);
-      break;
-
-    default:
-      console.error(`unknown command: ${command}`);
-      console.error(`run '${NAME} --help' for usage`);
-      process.exit(1);
+  if (name === "help") {
+    const target = rest.find((t) => !t.startsWith("-"));
+    const spec = target ? findSpec(target) : undefined;
+    console.log(spec ? commandHelp(spec) : HELP);
+    return undefined;
   }
+
+  if (name === undefined) {
+    const { flags, positionals } = parse(rest, GLOBAL_FLAGS, "");
+    if (flags.version) console.log(`${NAME} v${pkg.version}`);
+    else if (positionals.length) throw usageError(`"${positionals[0]}" isn't a command. run: ${NAME} --help`);
+    else console.log(HELP);
+    return undefined;
+  }
+
+  const spec = findSpec(name);
+  if (!spec) {
+    const guess = closest(name, COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]));
+    throw usageError(`unknown command: ${name}.${guess ? ` did you mean '${guess}'?` : ""} run: ${NAME} --help`);
+  }
+
+  const { flags, positionals } = parse(rest, [...(spec.flags ?? []), ...GLOBAL_FLAGS], name);
+  if (flags.help) {
+    console.log(commandHelp(spec));
+    return undefined;
+  }
+  if (positionals.length < (spec.min ?? 0)) {
+    throw usageError(`usage: ${NAME} ${spec.name} ${spec.args}\nrun: ${NAME} ${spec.name} --help`);
+  }
+  return { spec, parsed: { command: name, flags, positionals } };
 }
 
 function die(err: unknown) {
+  if (err instanceof CliError) {
+    console.error(err.message.startsWith("usage:") ? err.message : `error: ${err.message}`);
+    process.exit(err.code);
+  }
   console.error("error:", explainConnectionError(err).message);
   process.exit(1);
+}
+
+async function main() {
+  const job = dispatch();
+  if (!job) return;
+  const { spec, parsed } = job;
+
+  if (parsed.flags.verbose) setVerbose(true);
+
+  // fold a pre-multi-account session.txt into account "default" (one-time, no-op after)
+  migrateLegacyIfNeeded();
+
+  const account = parsed.flags.account;
+  if (account === true) throw usageError(`--account needs a name. run: ${NAME} accounts`);
+  if (account) setSessionPath(accountSessionPath(account), account);
+
+  await spec.run(parsed, { json: parsed.flags.json === true, accountFlag: account });
 }
 
 // gramjs's update loop can reject with TIMEOUT as the connection is torn down,
@@ -184,4 +274,5 @@ process.on("unhandledRejection", (err) => {
   if (isTearingDown()) return;
   die(err);
 });
-main().catch(die);
+// exit explicitly: a gramjs ping still in flight can hold the event loop open after disconnect
+main().then(() => process.exit(0), die);

@@ -1,10 +1,13 @@
-import { TelegramClient, type Api } from "telegram";
+import { TelegramClient, Api, utils } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { Logger } from "telegram/extensions/Logger";
 import type { LogLevel } from "telegram/extensions/Logger";
+import type { Dialog } from "telegram/tl/custom/dialog";
 import { loadSession, saveSession } from "../session/storage";
 import { getApiCredentials } from "../config/manager";
+import { getCurrentAccount } from "../config/accounts";
 import { wssEnabled, wssClientParams, applyWss, restoreTcpDc, explainConnectionError } from "./wss";
+import { CliError, EXIT } from "../cli/errors";
 
 let verbose = false;
 
@@ -20,12 +23,22 @@ class SilentLogger extends Logger {
   }
 }
 
+export type Entity = Api.User | Api.Chat | Api.Channel;
+
 let client: TelegramClient | null = null;
 let customSessionPath: string | undefined;
+let pinnedAccount: string | undefined;
 let tearingDown = false;
+const extraClients: TelegramClient[] = [];
 
-export function setSessionPath(path: string) {
+export function setSessionPath(path: string, accountName?: string) {
   customSessionPath = path;
+  pinnedAccount = accountName;
+}
+
+// the account name this invocation runs as, for messages and hints
+export function activeAccount(): string {
+  return pinnedAccount ?? getCurrentAccount() ?? "default";
 }
 
 // true once disconnect() has begun. gramjs's background update loop can reject
@@ -36,12 +49,10 @@ export function isTearingDown(): boolean {
   return tearingDown;
 }
 
-export async function getClient(): Promise<TelegramClient> {
-  if (client) return client;
-
+export async function createClient(sessionPath?: string): Promise<TelegramClient> {
   const creds = getApiCredentials();
   if (!creds) {
-    throw new Error(
+    throw new CliError(
       "telegram API credentials not found.\n" +
       "get them from: https://my.telegram.org/apps\n" +
       "then run: telegram config set appId <id>\n" +
@@ -50,29 +61,46 @@ export async function getClient(): Promise<TelegramClient> {
     );
   }
 
-  const sessionStr = loadSession(customSessionPath);
-  const session = new StringSession(sessionStr);
-
-  client = new TelegramClient(session, creds.appId, creds.appHash, {
+  const c = new TelegramClient(new StringSession(loadSession(sessionPath)), creds.appId, creds.appHash, {
     connectionRetries: 5,
     baseLogger: new SilentLogger(),
     ...(wssEnabled() ? wssClientParams : {}),
   });
 
-  if (wssEnabled()) applyWss(client);
-  else restoreTcpDc(client);
+  if (wssEnabled()) applyWss(c);
+  else restoreTcpDc(c);
 
   try {
-    await client.connect();
+    await c.connect();
   } catch (err) {
     throw explainConnectionError(err);
   }
+  return c;
+}
+
+export async function getClient(): Promise<TelegramClient> {
+  if (!client) client = await createClient(customSessionPath);
   return client;
+}
+
+// a client for another account, torn down with the main one
+export async function getClientFor(sessionPath: string): Promise<TelegramClient> {
+  const c = await createClient(sessionPath);
+  extraClients.push(c);
+  return c;
 }
 
 export async function isLoggedIn(): Promise<boolean> {
   const c = await getClient();
   return c.checkAuthorization();
+}
+
+export async function requireLogin(): Promise<TelegramClient> {
+  const c = await getClient();
+  if (!(await c.checkAuthorization())) {
+    throw new CliError(`account "${activeAccount()}" is not logged in. run: telegram login ${activeAccount()}`);
+  }
+  return c;
 }
 
 export async function login(callbacks: {
@@ -94,116 +122,141 @@ export async function login(callbacks: {
   console.log("session saved!");
 }
 
-// a chat can be addressed by @username, "me", phone (+123), t.me link,
-// or a numeric id copied from `telegram dialogs`. usernames/links resolve
-// natively; numeric ids and bare names need the dialog entity cache, so we
-// look them up here.
-export async function resolveEntity(
-  identifier: string
-): Promise<string | Api.TypeEntityLike> {
-  const c = await getClient();
-  const id = identifier.trim();
+// dialogs are fetched at most once per client per process, at the widest limit asked
+const dialogCache = new WeakMap<TelegramClient, { limit: number; dialogs: Dialog[] }>();
 
-  // things gramjs resolves on its own
-  if (
-    id === "me" ||
-    id.startsWith("@") ||
-    id.startsWith("+") ||
-    id.startsWith("http")
-  ) {
-    return id;
-  }
-
-  // numeric id (users positive, chats/channels may be negative)
-  if (/^-?\d+$/.test(id)) {
-    try {
-      // fast path: entity already in the session cache
-      return await c.getInputEntity(id);
-    } catch {
-      // slow path: fetch dialogs to populate + match the entity
-      const match = (await c.getDialogs({ limit: 200 })).find(
-        (d) => d.id?.toString() === id || d.entity?.id?.toString() === id
-      );
-      if (match?.entity) return match.entity;
-      throw new Error(
-        `chat with id ${id} not found in your dialogs. run: telegram dialogs 200`
-      );
-    }
-  }
-
-  // bare name: partial, case-insensitive match against dialog titles
-  const match = (await c.getDialogs({ limit: 200 })).find((d) =>
-    d.title?.toLowerCase().includes(id.toLowerCase())
-  );
-  if (match?.entity) return match.entity;
-
-  // let gramjs take a final shot (e.g. a username without the @)
-  return id;
-}
-
-export async function sendMessage(
-  username: string,
-  message: string
-): Promise<Api.Message> {
-  const c = await getClient();
-  const entity = await resolveEntity(username);
-  return c.sendMessage(entity, { message });
-}
-
-export async function sendFile(
-  username: string,
-  filePath: string,
-  caption?: string
-): Promise<Api.Message> {
-  const c = await getClient();
-  const entity = await resolveEntity(username);
-  return c.sendFile(entity, {
-    file: filePath,
-    caption: caption,
-  });
-}
-
-export async function downloadMedia(
-  message: Api.Message,
-  outputPath?: string
-): Promise<string | undefined> {
-  const c = await getClient();
-  if (!message.media) {
-    return undefined;
-  }
-  
-  const buffer = await c.downloadMedia(message, {
-    outputFile: outputPath,
-  });
-  
-  return buffer as string | undefined;
-}
-
-export async function getMessages(
-  username: string,
-  limit = 10
-): Promise<Api.Message[]> {
-  const c = await getClient();
-  const entity = await resolveEntity(username);
-  const messages = await c.getMessages(entity, { limit });
-  return messages as Api.Message[];
+export async function fetchDialogs(c: TelegramClient, limit: number): Promise<Dialog[]> {
+  const cached = dialogCache.get(c);
+  if (cached && cached.limit >= limit) return cached.dialogs.slice(0, limit);
+  const dialogs = await c.getDialogs({ limit });
+  dialogCache.set(c, { limit, dialogs });
+  return dialogs;
 }
 
 export async function getDialogs(limit = 10) {
+  return fetchDialogs(await getClient(), limit);
+}
+
+// recent chats first; only walk further back on a miss
+const RESOLVE_DIALOG_SCANS = [100, 500];
+
+export class ChatNotFound extends CliError {
+  constructor(readonly query: string, account: string) {
+    super(`no chat matching "${query}" in account "${account}".`, EXIT.notFound);
+  }
+}
+
+export class AmbiguousChat extends CliError {
+  constructor(query: string, account: string, readonly matches: Dialog[]) {
+    const lines = matches.slice(0, 10).map((d) => `  ${d.id?.toString()}  ${d.title}`);
+    super(
+      `"${query}" matches ${matches.length} chats in account "${account}":\n${lines.join("\n")}\n` +
+        `rerun with the id, e.g. telegram <command> ${matches[0]?.id?.toString()} ...`,
+      EXIT.ambiguous
+    );
+  }
+}
+
+function isEntity(e: unknown): e is Entity {
+  return e instanceof Api.User || e instanceof Api.Chat || e instanceof Api.Channel;
+}
+
+function titleMatches(dialogs: Dialog[], id: string, account: string): Entity | undefined {
+  const q = id.toLowerCase();
+  const exact = dialogs.filter((d) => d.title?.toLowerCase() === q);
+  const matches = exact.length ? exact : dialogs.filter((d) => d.title?.toLowerCase().includes(q));
+  if (matches.length > 1) throw new AmbiguousChat(id, account, matches);
+  const only = matches[0]?.entity;
+  return isEntity(only) ? only : undefined;
+}
+
+// a chat can be addressed by @username, "me", phone (+123), t.me link, a numeric
+// id copied from `telegram list` (negative for groups/channels), or a title.
+// titles must match exactly or uniquely — a write never lands on a guess.
+export async function resolveIn(c: TelegramClient, identifier: string, account: string): Promise<Entity> {
+  const id = identifier.trim();
+
+  if (id === "me" || id.startsWith("@") || id.startsWith("+") || id.startsWith("http")) {
+    try {
+      const e = await c.getEntity(id);
+      if (isEntity(e)) return e;
+    } catch {
+      // fall through to not-found
+    }
+    throw new ChatNotFound(id, account);
+  }
+
+  if (/^-?\d+$/.test(id)) {
+    for (const scan of RESOLVE_DIALOG_SCANS) {
+      const match = (await fetchDialogs(c, scan)).find((d) => d.id?.toString() === id);
+      if (match && isEntity(match.entity)) return match.entity;
+    }
+    try {
+      const e = await c.getEntity(Number(id));
+      if (isEntity(e)) return e;
+    } catch {
+      // not cached and not in recent dialogs
+    }
+    throw new ChatNotFound(id, account);
+  }
+
+  // titles: uniqueness is judged over the whole scan window, never the first page
+  const hit = titleMatches(await fetchDialogs(c, RESOLVE_DIALOG_SCANS.at(-1)!), id, account);
+  if (hit) return hit;
+
+  // older chats: telegram's search, restricted to chats you're in (my_results) and exact titles
+  const found = await c.invoke(new Api.contacts.Search({ q: id, limit: 20 }));
+  const mine = new Set(found.myResults.map((p) => utils.getPeerId(p)));
+  const q = id.toLowerCase();
+  const exact = [...found.chats, ...found.users]
+    .filter(isEntity)
+    .filter((e) => mine.has(utils.getPeerId(e)))
+    .filter((e) => (e instanceof Api.User ? [e.firstName, e.lastName].filter(Boolean).join(" ") : e.title).toLowerCase() === q);
+  if (exact.length === 1) return exact[0]!;
+  throw new ChatNotFound(id, account);
+}
+
+export async function resolveEntity(identifier: string): Promise<Entity> {
+  return resolveIn(await getClient(), identifier, activeAccount());
+}
+
+export async function sendMessage(chat: string, message: string): Promise<{ msg: Api.Message; entity: Entity }> {
   const c = await getClient();
-  return c.getDialogs({ limit });
+  const entity = await resolveEntity(chat);
+  return { msg: await c.sendMessage(entity, { message }), entity };
+}
+
+export async function sendFile(chat: string, filePath: string, caption?: string): Promise<{ msg: Api.Message; entity: Entity }> {
+  const c = await getClient();
+  const entity = await resolveEntity(chat);
+  return { msg: await c.sendFile(entity, { file: filePath, caption }), entity };
+}
+
+export async function downloadMedia(message: Api.Message, outputPath?: string): Promise<string | undefined> {
+  const c = await getClient();
+  if (!message.media) return undefined;
+  const result = await c.downloadMedia(message, { outputFile: outputPath });
+  return result as string | undefined;
+}
+
+export async function getMessages(chat: string, limit = 10): Promise<Api.Message[]> {
+  const c = await getClient();
+  const entity = await resolveEntity(chat);
+  return (await c.getMessages(entity, { limit })) as Api.Message[];
 }
 
 export async function disconnect(): Promise<void> {
-  if (client) {
-    tearingDown = true;
+  tearingDown = true;
+  for (const c of [client, ...extraClients]) {
+    if (!c) continue;
     try {
-      await client.disconnect();
+      await c.disconnect();
       // destroy() also tears down the update loop; ignore if the build lacks it
-      await (client as unknown as { destroy?: () => Promise<void> }).destroy?.();
+      await (c as unknown as { destroy?: () => Promise<void> }).destroy?.();
     } catch {
       // teardown errors are never actionable — the work already committed
     }
-    client = null;
   }
+  client = null;
+  extraClients.length = 0;
 }

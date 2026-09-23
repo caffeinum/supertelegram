@@ -31,7 +31,7 @@ async function ensureLoggedIn() {
 async function handleSend() {
   const username = await askUsername();
   const message = await askMessage();
-  const result = await sendMessage(username, message);
+  const { msg: result } = await sendMessage(username, message);
   console.log("sent:", result.id);
 }
 
