@@ -3,7 +3,9 @@
 telegram cli (gramjs) for humans and agents. owned by the `supertelegram` paw agent — see the `supertelegram-ownership` skill.
 
 ## layout
-- `src/cli/run.ts` — command specs (flags, help, examples) + dispatch. per-command `--help` is generated from the spec.
+- `src/cli/run.ts` — entry: no args on a tty → repl, else `execute(argv)` then exit.
+- `src/cli/cli.ts` — command specs (flags, help, examples) + dispatch; `execute(argv)` returns an exit code and never exits.
+- `src/cli/repl.ts` — interactive shell: tokenizer, tab completion, history. keep-alive clients, so `disconnect()` is a no-op there.
 - `src/cli/args.ts` — strict parser: unknown flags error with did-you-mean; `-123` is a positional (chat ids), `--` ends flags.
 - `src/cli/chat.ts` — list/read/info/send/send-file/reply/download/unread. text by default, `--json` everywhere.
 - `src/cli/commands.ts` — login/accounts/switch/whoami/logout/config.
@@ -16,7 +18,11 @@ telegram cli (gramjs) for humans and agents. owned by the `supertelegram` paw ag
 ## release
 bump `version` in package.json, push main. `.github/workflows/publish.yml` publishes via npm OIDC (no token) and tags `vX.Y.Z`.
 
+## repl testing
+drive it through a real tty with `expect`. send keystrokes separately with a pause (`send "rea"; sleep 0.4; send "\t"`): readline treats a tab in the same chunk as other chars as pasted text and inserts it literally.
+
 ## gotchas
+- the eval must pin accounts with `-a`: aleks switches the active account, and unpinned cases then silently test something else.
 - gramjs's update loop rejects with TIMEOUT during disconnect — `isTearingDown()` keeps that from flipping the exit code.
 - every command must `disconnect()` on every path or the process hangs.
 - never test-send to real people: use `me`.

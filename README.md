@@ -29,6 +29,27 @@ that's it! now you're ready to use telegram from the cli.
 
 ## usage
 
+### interactive shell
+
+run `telegram` (or `bunx supertelegram`) with no arguments in a terminal:
+
+```
+$ telegram
+supertelegram v0.8.0 — type a command without "telegram" (list, read, send, ...). tab completes, ↑ for history, "help", ctrl-d to quit.
+telegram:default> read Cov⇥          → read Covers!
+telegram:default> read Covers! -n 5
+telegram:default> send me "note"
+```
+
+- the same commands and flags as the cli, without the `telegram` prefix (a pasted `telegram ...` works too)
+- **tab** completes commands, flags, account names after `-a`, chat titles/@usernames/ids (from the account on that line), and file paths for `send-file` / `download`
+- **↑/↓** history, kept in `~/.supertelegram/repl_history` (0600)
+- connections stay open between commands, so repeated commands skip the connect
+- quoting is `'...'`, `"..."` and `\` escapes; `!`, `$` and `*` are plain characters (no shell history expansion)
+- `login` runs as its own process so its prompts work. `exit`, `quit` or ctrl-d to leave
+
+piped or scripted (`telegram < /dev/null`, or from an agent), no arguments still just prints help.
+
 ### find a chat
 
 chats are addressed by `@username`, numeric id, or title. ids come from `list`.

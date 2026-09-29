@@ -4,7 +4,7 @@ import { Logger } from "telegram/extensions/Logger";
 import type { LogLevel } from "telegram/extensions/Logger";
 import type { Dialog } from "telegram/tl/custom/dialog";
 import { loadSession, saveSession } from "../session/storage";
-import { getApiCredentials } from "../config/manager";
+import { getApiCredentials, getSessionPath } from "../config/manager";
 import { getCurrentAccount } from "../config/accounts";
 import { wssEnabled, wssClientParams, applyWss, restoreTcpDc, explainConnectionError } from "./wss";
 import { CliError, EXIT } from "../cli/errors";
@@ -25,15 +25,21 @@ class SilentLogger extends Logger {
 
 export type Entity = Api.User | Api.Chat | Api.Channel;
 
-let client: TelegramClient | null = null;
+// one client per session file, so a long-lived process (the repl) keeps each account warm
+const clients = new Map<string, TelegramClient>();
 let customSessionPath: string | undefined;
 let pinnedAccount: string | undefined;
 let tearingDown = false;
-const extraClients: TelegramClient[] = [];
+let keepAlive = false;
 
-export function setSessionPath(path: string, accountName?: string) {
+export function setSessionPath(path: string | undefined, accountName?: string) {
   customSessionPath = path;
   pinnedAccount = accountName;
+}
+
+// in keep-alive mode disconnect() is a no-op; shutdown() closes everything
+export function setKeepAlive(on: boolean) {
+  keepAlive = on;
 }
 
 // the account name this invocation runs as, for messages and hints
@@ -78,16 +84,16 @@ export async function createClient(sessionPath?: string): Promise<TelegramClient
   return c;
 }
 
-export async function getClient(): Promise<TelegramClient> {
-  if (!client) client = await createClient(customSessionPath);
-  return client;
+export async function getClientFor(sessionPath: string): Promise<TelegramClient> {
+  const existing = clients.get(sessionPath);
+  if (existing) return existing;
+  const c = await createClient(sessionPath);
+  clients.set(sessionPath, c);
+  return c;
 }
 
-// a client for another account, torn down with the main one
-export async function getClientFor(sessionPath: string): Promise<TelegramClient> {
-  const c = await createClient(sessionPath);
-  extraClients.push(c);
-  return c;
+export async function getClient(): Promise<TelegramClient> {
+  return getClientFor(getSessionPath(customSessionPath));
 }
 
 export async function isLoggedIn(): Promise<boolean> {
@@ -122,14 +128,18 @@ export async function login(callbacks: {
   console.log("session saved!");
 }
 
-// dialogs are fetched at most once per client per process, at the widest limit asked
-const dialogCache = new WeakMap<TelegramClient, { limit: number; dialogs: Dialog[] }>();
+// dialogs are fetched at most once per client per 30s, at the widest limit asked.
+// order and unread counts drift as messages arrive, so a long-lived process refetches.
+const DIALOG_TTL_MS = 30_000;
+const dialogCache = new WeakMap<TelegramClient, { limit: number; dialogs: Dialog[]; at: number }>();
 
-export async function fetchDialogs(c: TelegramClient, limit: number): Promise<Dialog[]> {
+export async function fetchDialogs(c: TelegramClient, limit: number, fresh = false): Promise<Dialog[]> {
   const cached = dialogCache.get(c);
-  if (cached && cached.limit >= limit) return cached.dialogs.slice(0, limit);
+  if (!fresh && cached && cached.limit >= limit && Date.now() - cached.at < DIALOG_TTL_MS) {
+    return cached.dialogs.slice(0, limit);
+  }
   const dialogs = await c.getDialogs({ limit });
-  dialogCache.set(c, { limit, dialogs });
+  dialogCache.set(c, { limit, dialogs, at: Date.now() });
   return dialogs;
 }
 
@@ -245,10 +255,8 @@ export async function getMessages(chat: string, limit = 10): Promise<Api.Message
   return (await c.getMessages(entity, { limit })) as Api.Message[];
 }
 
-export async function disconnect(): Promise<void> {
-  tearingDown = true;
-  for (const c of [client, ...extraClients]) {
-    if (!c) continue;
+async function closeClients(): Promise<void> {
+  for (const c of clients.values()) {
     try {
       await c.disconnect();
       // destroy() also tears down the update loop; ignore if the build lacks it
@@ -257,6 +265,20 @@ export async function disconnect(): Promise<void> {
       // teardown errors are never actionable — the work already committed
     }
   }
-  client = null;
-  extraClients.length = 0;
+  clients.clear();
+}
+
+// drop cached connections (after login/logout/switch changed which session a path means)
+export async function resetClients(): Promise<void> {
+  await closeClients();
+}
+
+export async function shutdown(): Promise<void> {
+  tearingDown = true;
+  await closeClients();
+}
+
+export async function disconnect(): Promise<void> {
+  if (keepAlive) return;
+  await shutdown();
 }

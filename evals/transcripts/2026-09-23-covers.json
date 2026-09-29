@@ -2,27 +2,33 @@
   {
     "args": [
       "read",
-      "Covers"
+      "Covers",
+      "-a",
+      "default"
     ],
     "expect": "fix",
     "contains": "-a caffeinum",
-    "why": "chat lives on another account — say which"
+    "why": "chat lives on another account — say which [pinned: the transcript ran on default]"
   },
   {
     "args": [
       "list",
-      "candy pm"
+      "candy pm",
+      "-a",
+      "default"
     ],
     "expect": "work",
-    "why": "list/search by name"
+    "why": "list/search by name [pinned: the transcript ran on default]"
   },
   {
     "args": [
-      "list"
+      "list",
+      "-a",
+      "default"
     ],
     "expect": "work",
     "contains": "[id:",
-    "why": "list chats"
+    "why": "list chats [pinned: the transcript ran on default]"
   },
   {
     "args": [
@@ -71,11 +77,13 @@
   {
     "args": [
       "read",
-      "-5078309102"
+      "-5078309102",
+      "-a",
+      "default"
     ],
     "expect": "fix",
     "contains": "-a caffeinum",
-    "why": "negative id is a chat, not a flag"
+    "why": "negative id is a chat, not a flag [pinned: the transcript ran on default]"
   },
   {
     "args": [
@@ -103,11 +111,13 @@
     "args": [
       "read",
       "Covers!",
-      "1"
+      "1",
+      "-a",
+      "default"
     ],
     "expect": "fix",
     "contains": "-a caffeinum",
-    "why": "name on another account"
+    "why": "name on another account [pinned: the transcript ran on default]"
   },
   {
     "args": [

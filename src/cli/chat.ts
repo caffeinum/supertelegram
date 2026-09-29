@@ -161,7 +161,7 @@ export interface ListOpts extends Out {
 export async function list(query: string | undefined, opts: ListOpts, command = "list") {
   const c = await requireLogin();
   const q = query?.toLowerCase();
-  let dialogs = await fetchDialogs(c, q ? 500 : opts.offset + opts.limit + 1);
+  let dialogs = await fetchDialogs(c, q ? 500 : opts.offset + opts.limit + 1, !q);
   if (q) {
     dialogs = dialogs.filter((d) => {
       const u = d.entity && !(d.entity instanceof Api.Chat) ? (d.entity as { username?: string }).username : undefined;

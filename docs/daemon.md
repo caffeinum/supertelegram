@@ -192,7 +192,7 @@ tests 2–8 need `SUPERTELEGRAM_HOME` (config dir override), which doesn't exist
 | tests + eval modes | 300 |
 | **total** | **~1100** |
 
-about 2–3 days of agent work, eval included. it ships as 0.8.0 behind nothing: routing is on by default,
+about 2–3 days of agent work, eval included. it ships as the next minor behind nothing: routing is on by default,
 because the fallback is today's behaviour. if the equivalence gate fails in any mode, it doesn't ship.
 
 ## not doing
