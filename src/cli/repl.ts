@@ -142,6 +142,10 @@ async function candidatesFor(t: Tokens): Promise<string[]> {
 
   if (t.value.startsWith("-") && !/^-\d/.test(t.value)) return flags.map((f) => `--${f.name}`);
 
+  const accIdx = words.findIndex((w) => w === "-a" || w === "--account");
+  const account = accIdx === -1 ? undefined : words[accIdx + 1];
+  if (prev === "--in" || prev === "--from") return chatCandidates(account);
+
   // which positional is being typed (flags with values consume the next word)
   const after = words.slice(i + 1);
   let position = 0;
@@ -152,8 +156,6 @@ async function candidatesFor(t: Tokens): Promise<string[]> {
     else if (!w.startsWith("-") || /^-\d+$/.test(w)) position++;
   }
 
-  const accIdx = words.findIndex((w) => w === "-a" || w === "--account");
-  const account = accIdx === -1 ? undefined : words[accIdx + 1];
   if (position === 0 && CHAT_COMMANDS.has(spec.name)) return [...(await chatCandidates(account)), ...(spec.name === "send" || spec.name === "send-file" ? ["me"] : [])];
   if (spec.name === "send-file" && position === 1) return pathCandidates(t.value);
   if (spec.name === "download" && position === 2) return pathCandidates(t.value);

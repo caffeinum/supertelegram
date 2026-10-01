@@ -56,7 +56,7 @@ chats are addressed by `@username`, numeric id, or title. ids come from `list`.
 
 ```bash
 telegram list                     # 100 most recent chats: title, @username, [id], type, unread
-telegram list covers              # chats whose title/@username contains "covers" (alias: search)
+telegram list covers              # chats whose title/@username contains "covers"
 telegram list -n 20 --offset 20   # page through
 telegram info -5078309102         # group details + members (names, @usernames, ids, roles)
 telegram info -1001364634660 -q aleks   # search members of a big group
@@ -66,6 +66,19 @@ telegram info @username           # a person's profile
 a title must match exactly one chat — if it matches several you get the list of
 ids and exit code 4, never a guess. if the chat isn't in this account, the error
 tells you which of your other accounts has it and the exact command to run.
+
+### search messages
+
+```bash
+telegram search "sol address"                     # message text across all your chats (+ chats whose name matches)
+telegram search адрес --in Covers!                # inside one chat (@username, id, or title)
+telegram search deploy --in -1001364634660 --from @caffeinum   # only one person's messages (needs --in)
+telegram search invoice -n 20 --json
+```
+
+results show newest last, as `[date] Chat [id] #msg-id sender: text`. pages end with a
+`more:` line: `--cursor <token>` across all chats, `--before <msg-id>` inside one.
+at most 100 per page (telegram's limit).
 
 ### messages
 

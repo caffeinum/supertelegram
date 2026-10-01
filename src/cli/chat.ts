@@ -23,22 +23,22 @@ export interface Out {
 }
 
 // shell-safe: plain when harmless, else single-quoted (no $, `, ! expansion)
-function quote(arg: string): string {
-  if (/^-\d+$/.test(arg) || /^[\w@:+./][\w@:+./-]*$/.test(arg)) return arg;
+export function quote(arg: string): string {
+  if (/^-\d+$/.test(arg) || /^[\p{L}\p{N}_@:+./][\p{L}\p{N}_@:+./-]*$/u.test(arg)) return arg;
   return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
-function cmdline(command: string, args: string[], out: Out): string {
+export function cmdline(command: string, args: string[], out: Out): string {
   const account = out.accountFlag ? ` -a ${quote(out.accountFlag)}` : "";
   return `telegram ${command}${account} ${args.join(" ")}`.trimEnd();
 }
 
-function emit(out: Out, json: unknown, text: string[]) {
+export function emit(out: Out, json: unknown, text: string[]) {
   console.log(out.json ? JSON.stringify(json, null, 2) : text.join("\n"));
 }
 
 // on a miss, look in the other logged-in accounts and name the exact command to run
-async function resolveOrHint(chat: string, command: string, out: Out): Promise<Entity> {
+export async function resolveOrHint(chat: string, command: string, out: Out): Promise<Entity> {
   try {
     return await resolveEntity(chat);
   } catch (err) {
@@ -101,6 +101,29 @@ export async function reply(chat: string, message: string, out: Out) {
   await disconnect();
 }
 
+export type MessageRow = ReturnType<typeof messageRow>;
+
+export function messageRow(m: Api.Message | Api.MessageService, sender: Entity | undefined) {
+  return {
+    id: m.id,
+    date: isoDate(m.date),
+    sender_id: m.senderId?.toString() ?? null,
+    sender: sender ? displayName(sender) : null,
+    username: sender ? (username(sender) ?? null) : null,
+    text: m instanceof Api.MessageService ? null : m.message,
+    action: m instanceof Api.MessageService ? m.action.className.replace(/^MessageAction/, "") : null,
+    media: m instanceof Api.MessageService ? null : (mediaLabel(m) ?? null),
+    reply_to: m.replyTo?.replyToMsgId ?? null,
+  };
+}
+
+// `fallbackWho` is the chat itself: a message with no sender is a post by the chat
+export function messageLine(r: MessageRow, fallbackWho: string, chatPrefix = ""): string {
+  const who = r.sender ? `${r.sender}${r.username ? ` (@${r.username})` : ""}` : (r.sender_id ?? fallbackWho);
+  const body = r.action ? `[${r.action}]` : `${r.text}${r.media ? ` [${r.media}]` : ""}`;
+  return `[${r.date}] ${chatPrefix}#${r.id} ${who}: ${body}`;
+}
+
 export interface ReadOpts extends Out {
   limit: number;
   before?: number;
@@ -117,20 +140,7 @@ export async function read(chat: string, opts: ReadOpts) {
   })) as (Api.Message | Api.MessageService)[];
   const chrono = forward ? msgs : [...msgs].reverse();
 
-  const rows = chrono.map((m) => {
-    const sender = m.sender as Entity | undefined;
-    return {
-      id: m.id,
-      date: isoDate(m.date),
-      sender_id: m.senderId?.toString() ?? null,
-      sender: sender ? displayName(sender) : null,
-      username: sender ? (username(sender) ?? null) : null,
-      text: m instanceof Api.MessageService ? null : m.message,
-      action: m instanceof Api.MessageService ? m.action.className.replace(/^MessageAction/, "") : null,
-      media: m instanceof Api.MessageService ? null : (mediaLabel(m) ?? null),
-      reply_to: m.replyTo?.replyToMsgId ?? null,
-    };
-  });
+  const rows = chrono.map((m) => messageRow(m, m.sender as Entity | undefined));
 
   const edge = forward ? chrono[chrono.length - 1] : chrono[0];
   const next =
@@ -142,11 +152,7 @@ export async function read(chat: string, opts: ReadOpts) {
     opts,
     { chat: { id: peerId(entity), title: displayName(entity), type: chatType(entity) }, account: activeAccount(), messages: rows, next },
     [
-      ...rows.map((r) => {
-        const who = r.sender ? `${r.sender}${r.username ? ` (@${r.username})` : ""}` : (r.sender_id ?? displayName(entity));
-        const body = r.action ? `[${r.action}]` : `${r.text}${r.media ? ` [${r.media}]` : ""}`;
-        return `[${r.date}] #${r.id} ${who}: ${body}`;
-      }),
+      ...rows.map((r) => messageLine(r, displayName(entity))),
       ...(next ? ["", `more: ${next}`] : []),
     ]
   );

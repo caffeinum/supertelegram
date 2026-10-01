@@ -7,7 +7,8 @@ telegram cli (gramjs) for humans and agents. owned by the `supertelegram` paw ag
 - `src/cli/cli.ts` — command specs (flags, help, examples) + dispatch; `execute(argv)` returns an exit code and never exits.
 - `src/cli/repl.ts` — interactive shell: tokenizer, tab completion, history. keep-alive clients, so `disconnect()` is a no-op there.
 - `src/cli/args.ts` — strict parser: unknown flags error with did-you-mean; `-123` is a positional (chat ids), `--` ends flags.
-- `src/cli/chat.ts` — list/read/info/send/send-file/reply/download/unread. text by default, `--json` everywhere.
+- `src/cli/chat.ts` — list/read/info/send/send-file/reply/download/unread + shared message row/line rendering. text by default, `--json` everywhere.
+- `src/cli/search.ts` — message search: messages.searchGlobal (cursor = base64url of next_rate + last msg id + input peer incl. access hash) or messages.search within --in.
 - `src/cli/commands.ts` — login/accounts/switch/whoami/logout/config.
 - `src/client/telegram.ts` — clients per account, `resolveIn` (exact/unique title, never guesses), dialog cache, teardown.
 - `src/cli/errors.ts` — `CliError` + exit codes (1 runtime, 2 usage, 3 not found, 4 ambiguous).
@@ -22,6 +23,8 @@ bump `version` in package.json, push main. `.github/workflows/publish.yml` publi
 drive it through a real tty with `expect`. send keystrokes separately with a pause (`send "rea"; sleep 0.4; send "\t"`): readline treats a tab in the same chunk as other chars as pasted text and inserts it literally.
 
 ## gotchas
+- eval: a check that greps output for error words must only look at failed runs — search results contain arbitrary text ("network clause" once made a passing case read as a connection failure).
+- zsh `echo "$json"` expands `\n` escapes; pipe json to files instead.
 - the eval must pin accounts with `-a`: aleks switches the active account, and unpinned cases then silently test something else.
 - gramjs's update loop rejects with TIMEOUT during disconnect — `isTearingDown()` keeps that from flipping the exit code.
 - every command must `disconnect()` on every path or the process hangs.

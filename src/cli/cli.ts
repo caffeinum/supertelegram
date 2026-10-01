@@ -5,6 +5,7 @@ import { setVerbose, setSessionPath } from "../client/telegram";
 import { migrateLegacyIfNeeded, accountSessionPath } from "../config/accounts";
 import { parse, findCommand, intFlag, closest, type FlagSpec, type Parsed } from "./args";
 import { CliError, usageError } from "./errors";
+import { search } from "./search";
 import pkg from "../../package.json";
 
 const NAME = "telegram";
@@ -43,7 +44,7 @@ function limitFrom(p: Parsed, positional: string | undefined, fallback: number, 
 export const COMMANDS: Command[] = [
   {
     name: "list",
-    aliases: ["dialogs", "search"],
+    aliases: ["dialogs"],
     args: "[query]",
     summary: "list chats, or find chats whose title/@username contains query",
     flags: [{ ...LIMIT, desc: "how many chats (default 100)" }, OFFSET],
@@ -71,6 +72,30 @@ export const COMMANDS: Command[] = [
       const after = p.flags.after === undefined ? undefined : intFlag(p.flags.after, "after", 0, "read");
       if (before !== undefined && after !== undefined) throw usageError("use --before or --after, not both");
       await read(p.positionals[0]!, { ...out, limit: limitFrom(p, p.positionals[1], 100, "read"), before, after });
+    },
+  },
+  {
+    name: "search",
+    args: "<query>",
+    summary: "search message text across all your chats (and chats whose name matches), or in one chat with --in",
+    flags: [
+      { ...LIMIT, desc: "how many messages (default 100, max 100 per page)" },
+      { name: "in", value: "chat", desc: "only this chat (@username, id, or title)" },
+      { name: "from", value: "user", desc: "only messages from this person (needs --in)" },
+      { name: "before", value: "msg-id", desc: "page back within --in (from the more: line)" },
+      { name: "cursor", value: "token", desc: "next page across all chats (from the more: line)" },
+    ],
+    examples: ["search invoice", "search sol address --in Covers! -n 20", "search deploy --in -1001364634660 --from @caffeinum"],
+    min: 1,
+    async run(p, out) {
+      await search(p.positionals.join(" "), {
+        ...out,
+        limit: intFlag(p.flags.limit, "limit", 100, "search", 1),
+        in: typeof p.flags.in === "string" ? p.flags.in : undefined,
+        from: typeof p.flags.from === "string" ? p.flags.from : undefined,
+        before: p.flags.before === undefined ? undefined : intFlag(p.flags.before, "before", 0, "search"),
+        cursor: typeof p.flags.cursor === "string" ? p.flags.cursor : undefined,
+      });
     },
   },
   {

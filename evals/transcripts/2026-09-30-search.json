@@ -1,0 +1,107 @@
+[
+  {
+    "args": [
+      "search",
+      "8qcKRkaDH5Ry1PfY6nhELqJBZdWDRHWopuaBEupiN69H",
+      "-a",
+      "caffeinum"
+    ],
+    "expect": "work",
+    "contains": "Covers! [-5078309102] #2742269",
+    "why": "find a message across all chats"
+  },
+  {
+    "args": [
+      "search",
+      "адрес",
+      "--in",
+      "Covers!",
+      "-a",
+      "caffeinum"
+    ],
+    "expect": "work",
+    "contains": "#2742267",
+    "why": "search inside one chat by title"
+  },
+  {
+    "args": [
+      "search",
+      "адрес",
+      "--in",
+      "-5078309102",
+      "--from",
+      "@caffeinum",
+      "-a",
+      "caffeinum"
+    ],
+    "expect": "work",
+    "contains": "#2742267",
+    "why": "--from keeps that sender"
+  },
+  {
+    "args": [
+      "search",
+      "сторадж",
+      "--in",
+      "-5078309102",
+      "--from",
+      "@im_moonko",
+      "-a",
+      "caffeinum"
+    ],
+    "expect": "work",
+    "contains": "#2567868",
+    "absent": "Aleks Bykhun",
+    "why": "--from drops other senders"
+  },
+  {
+    "args": [
+      "search",
+      "адрес",
+      "--from",
+      "@im_moonko",
+      "-a",
+      "caffeinum"
+    ],
+    "expect": "fix",
+    "contains": "--in",
+    "why": "--from without a chat names the fix"
+  },
+  {
+    "args": [
+      "search",
+      "zzqqxxnomatch12345",
+      "-a",
+      "caffeinum"
+    ],
+    "expect": "work",
+    "contains": "no messages matching",
+    "why": "no hits is a clear empty result, not an error"
+  },
+  {
+    "args": [
+      "search",
+      "Covers",
+      "-a",
+      "caffeinum",
+      "-n",
+      "2"
+    ],
+    "expect": "work",
+    "contains": "--cursor",
+    "why": "search pages with a cursor"
+  },
+  {
+    "args": [
+      "search",
+      "x",
+      "--cursor",
+      "garbage",
+      "-a",
+      "caffeinum"
+    ],
+    "expect": "fix",
+    "contains": "more: line",
+    "why": "bad cursor names where to get a good one"
+  }
+]

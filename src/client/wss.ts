@@ -39,6 +39,13 @@ export const MTPROTO_BLOCKED_HINT =
 
 export function explainConnectionError(err: unknown): Error {
   const msg = err instanceof Error ? err.message : String(err);
+  // gramjs throws this after its own retries on telegram server errors / short flood waits
+  const gaveUp = msg.match(/^Request was unsuccessful (\d+) time\(s\)$/);
+  if (gaveUp) {
+    return new Error(
+      `telegram didn't answer after ${gaveUp[1]} tries (server errors or rate limiting). wait a minute and rerun the same command; add -v to see each failure.`
+    );
+  }
   if (!wssEnabled() && msg.includes("Not connected")) {
     return new Error(`${MTPROTO_BLOCKED_HINT}\noriginal: ${msg}`);
   }

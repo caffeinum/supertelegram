@@ -2,15 +2,18 @@
 // replays real invocations people/agents tried. every case must either work or
 // fail with an error that names the fix (a runnable `telegram ...` suggestion).
 // usage: ST_CMD="bun run src/cli/run.ts" bun evals/replay.ts [cases.json]
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 type Expect = "work" | "fix" | "help";
-interface Case { args: string[]; expect: Expect; contains?: string; rows?: number; why: string }
+interface Case { args: string[]; expect: Expect; contains?: string; absent?: string; rows?: number; why: string }
 
 const cmd = (process.env.ST_CMD ?? "bun run src/cli/run.ts").split(" ");
-const file = process.argv[2] ?? new URL("./transcripts/2026-09-23-covers.json", import.meta.url).pathname;
-const cases: Case[] = JSON.parse(readFileSync(file, "utf-8"));
-const control = JSON.parse(readFileSync(file.replace(/\.json$/, ".control.json"), "utf-8")) as Case;
+const dir = new URL("./transcripts/", import.meta.url).pathname;
+const files = process.argv[2]
+  ? [process.argv[2]]
+  : readdirSync(dir).filter((f) => f.endsWith(".json") && !f.endsWith(".control.json")).sort().map((f) => dir + f);
+const cases: Case[] = files.flatMap((f) => JSON.parse(readFileSync(f, "utf-8")) as Case[]);
+const control = JSON.parse(readFileSync(files[0]!.replace(/\.json$/, ".control.json"), "utf-8")) as Case;
 
 function run(args: string[]) {
   const p = Bun.spawnSync([...cmd, ...args], { stdout: "pipe", stderr: "pipe", timeout: 60_000 });
@@ -18,11 +21,13 @@ function run(args: string[]) {
   return { code: p.exitCode, out };
 }
 
-const CONN = /Not connected|ECONNREFUSED|ETIMEDOUT|connection (closed|failed)|network/i;
+// telegram/network trouble, not the cli's behaviour: the case wasn't exercised
+const CONN = /Not connected|ECONNREFUSED|ETIMEDOUT|connection (closed|failed)|network|telegram didn't answer after|Request was unsuccessful/i;
 const GLOBAL_HELP = /^telegram - telegram cli/m;
 
 function judge(c: Case, r: { code: number | null; out: string }): ["PASS" | "WALL" | "UNVERIFIED", string] {
-  if (CONN.test(r.out)) return ["UNVERIFIED", "network/connection failure — subject not exercised"];
+  // only a failed run can be a connection failure — a successful one may just mention "network" in its content
+  if (r.code !== 0 && CONN.test(r.out)) return ["UNVERIFIED", "network/connection failure — subject not exercised"];
   if (c.expect === "help") {
     if (GLOBAL_HELP.test(r.out)) return ["WALL", "asked for command help, got global help"];
     return r.out.includes(c.contains ?? "") ? ["PASS", "command help"] : ["WALL", `help missing "${c.contains}"`];
@@ -31,6 +36,7 @@ function judge(c: Case, r: { code: number | null; out: string }): ["PASS" | "WAL
     if (r.code !== 0) return ["WALL", `exit ${r.code}: ${r.out.trim().split("\n")[0]}`];
     if (/^usage:/m.test(r.out) || GLOBAL_HELP.test(r.out)) return ["WALL", "printed usage/help instead of doing it"];
     if (c.contains && !r.out.includes(c.contains)) return ["WALL", `output missing "${c.contains}"`];
+    if (c.absent && r.out.includes(c.absent)) return ["WALL", `output must not include "${c.absent}"`];
     const rows = r.out.split("\n").filter((l) => /^(- |\[\d{4}-)/.test(l)).length;
     if (c.rows !== undefined && rows !== c.rows) return ["WALL", `expected ${c.rows} rows, got ${rows}`];
     return ["PASS", "worked"];
