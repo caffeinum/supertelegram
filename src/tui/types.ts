@@ -44,6 +44,7 @@ export interface SendOpts {
 // everything the tui needs from telegram; GramSource talks to telegram, FakeSource backs the tests
 export interface DataSource {
   account(): string;
+  accountLabel(): string; // who you are on this account, e.g. @alekshasbeen
   accounts(): string[];
   switchAccount(name: string): Promise<void>;
   listChats(limit: number): Promise<ChatSummary[]>;

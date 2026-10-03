@@ -23,6 +23,7 @@ export interface OpenChat {
 
 export interface State {
   account: string;
+  accountLabel: string;
   accounts: string[];
   view: View;
   mode: Mode;
@@ -60,9 +61,10 @@ export type Effect =
   | { type: "saveDrafts" }
   | { type: "quit" };
 
-export function initialState(account: string, accounts: string[], drafts: Record<string, Draft>): State {
+export function initialState(account: string, accounts: string[], drafts: Record<string, Draft>, accountLabel = ""): State {
   return {
     account,
+    accountLabel,
     accounts,
     view: "list",
     mode: "normal",
@@ -110,7 +112,7 @@ export type Action =
   | { type: "searchResults"; hits: SearchHit[] }
   | { type: "attach"; path: string; key: string; chatId: string }
   | { type: "insertText"; text: string }
-  | { type: "accountSwitched"; account: string }
+  | { type: "accountSwitched"; account: string; label: string }
   | { type: "toast"; text: string; error?: boolean }
   | { type: "event"; event: SourceEvent };
 
@@ -229,7 +231,7 @@ export function apply(s: State, a: Action): [State, Effect[]] {
     }
     case "accountSwitched":
       return [
-        { ...s, account: a.account, chats: [], chatsLoaded: false, open: undefined, results: undefined, view: "list", mode: "normal", listSel: undefined, filter: "" },
+        { ...s, account: a.account, accountLabel: a.label, chats: [], chatsLoaded: false, open: undefined, results: undefined, view: "list", mode: "normal", listSel: undefined, filter: "" },
         [{ type: "loadChats" }],
       ];
     case "toast":

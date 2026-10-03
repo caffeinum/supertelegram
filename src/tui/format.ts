@@ -2,6 +2,8 @@ import { RGBA } from "@opentui/core";
 
 // indexed ansi colors only: the user's terminal theme decides how they look on dark or light
 export const C = {
+  fg: RGBA.defaultForeground(), // the terminal's own text color — readable on light and dark themes
+  bg: RGBA.defaultBackground(),
   accent: RGBA.fromIndex(6),
   green: RGBA.fromIndex(2),
   yellow: RGBA.fromIndex(3),

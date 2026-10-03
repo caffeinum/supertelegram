@@ -35,6 +35,7 @@ function msgs(): Record<string, Msg[]> {
 }
 
 let teardown: (() => void) | undefined;
+type Setup = { t: Awaited<ReturnType<typeof testRender>> };
 
 // react's act() warnings are noise here: the renderer flushes on its own
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
@@ -46,7 +47,7 @@ async function setup(opts: { width?: number; height?: number; drafts?: Record<st
   const t = await testRender(
     <App
       source={src}
-      initial={initialState("default", ["default", "work"], opts.drafts ?? {})}
+      initial={initialState("default", ["default", "work"], opts.drafts ?? {}, "@default_user")}
       onQuit={() => (quit = true)}
       persistDrafts={(d) => saved.push(structuredClone(d))}
       openFile={async () => {}}
@@ -58,7 +59,11 @@ async function setup(opts: { width?: number; height?: number; drafts?: Record<st
       if (k.startsWith("ctrl-")) await t.mockInput.pressKey(k.slice(5), { ctrl: true });
       else if (k.startsWith("alt-")) await t.mockInput.pressKey(k.slice(4), { meta: true });
       else if (k === "enter") await t.mockInput.pressKey("RETURN");
-      else if (k === "esc") t.mockInput.pressEscape();
+      else if (k === "esc") {
+        // a person's esc stands alone; esc glued to the next key (alt+key) has its own test
+        t.mockInput.pressEscape();
+        await Bun.sleep(50);
+      }
       else if (k === "backspace") await t.mockInput.pressKey("BACKSPACE");
       else for (const ch of k) await t.mockInput.pressKey(ch);
       await t.flush();
@@ -284,6 +289,35 @@ describe("palette, go-to keys, search", () => {
   });
 });
 
+// real terminals send DEL (0x7f) for backspace; the mock's BACKSPACE sends \b, which hid this
+describe("backspace as a real terminal sends it", () => {
+  const DEL = "\x7f";
+  test("deletes in search", async () => {
+    const { keys, until, t } = await setup();
+    await keys("gs", "adress");
+    await t.mockInput.pressKey(DEL);
+    await t.mockInput.pressKey(DEL);
+    await keys("ss");
+    // "adress" − 2 chars + "ss" = "adress" only if backspace really deleted
+    await until((x) => x.includes('search "adress" in all chats'));
+  });
+  test("deletes in the prompt", async () => {
+    const { keys, until, t } = await setup();
+    await keys("enter");
+    await until((x) => x.includes("8qcK address"));
+    await keys("i", "helo");
+    await t.mockInput.pressKey(DEL);
+    await keys("lo");
+    await until((x) => x.includes("> hello") && !x.includes("hel\x7f"));
+  });
+  test("deletes in the list filter", async () => {
+    const { keys, until, t } = await setup();
+    await keys("/", "katx");
+    await t.mockInput.pressKey(DEL);
+    await until((x) => x.includes("/kat ") && x.includes("Kate"));
+  });
+});
+
 describe("review regressions", () => {
   test("search picked from insert mode: typing in results never reaches the prompt or sends", async () => {
     const { keys, until, src } = await setup();
@@ -368,6 +402,48 @@ describe("paste", () => {
     await keys("enter");
     await until((x) => x.includes("line three"));
     expect(src.sent()).toEqual([["-100", "line one\nline two\nline three", { replyTo: undefined }]]);
+  });
+});
+
+// light and dark terminals: every visible cell must use the terminal's own colors (default or palette index),
+// never a fixed rgb (opentui's implicit default is white, invisible on a light theme) or inverse video
+test("the header names the account, and typing says who you send as", async () => {
+  const { keys, until, frame } = await setup();
+  expect(frame()).toContain("default @default_user · ga switch");
+  await keys("enter");
+  await until((x) => x.includes("8qcK address"));
+  await keys("i");
+  await until((x) => x.includes("sending as @default_user"));
+});
+
+describe("theme-safe colors", () => {
+  async function offenders(t: Setup["t"]) {
+    const bad: string[] = [];
+    const { TextAttributes } = await import("@opentui/core");
+    for (const line of t.captureSpans().lines) {
+      for (const sp of line.spans) {
+        if (!sp.text.trim()) continue;
+        if (sp.fg.intent === "rgb") bad.push(`fg rgb ${sp.fg.toString()} on "${sp.text.trim().slice(0, 30)}"`);
+        if (sp.bg.intent === "rgb" && sp.bg.a > 0) bad.push(`bg rgb ${sp.bg.toString()} on "${sp.text.trim().slice(0, 30)}"`);
+        if (sp.attributes & TextAttributes.INVERSE) bad.push(`inverse on "${sp.text.trim().slice(0, 30)}"`);
+      }
+    }
+    return [...new Set(bad)];
+  }
+  test("list, chat + prompt, palette, help, results", async () => {
+    const s = await setup();
+    expect(await offenders(s.t)).toEqual([]);
+    await s.keys("enter");
+    await s.until((x) => x.includes("8qcK address"));
+    await s.keys("i", "typing");
+    expect(await offenders(s.t)).toEqual([]);
+    await s.keys("ctrl-k");
+    expect(await offenders(s.t)).toEqual([]);
+    await s.keys("esc", "esc", "?");
+    expect(await offenders(s.t)).toEqual([]);
+    await s.keys("esc", "gs", "address", "enter");
+    await s.until((x) => x.includes('search "address"'));
+    expect(await offenders(s.t)).toEqual([]);
   });
 });
 

@@ -36,6 +36,14 @@ export interface Command {
 const HALF_PAGE = 10;
 const ALL: View[] = ["list", "chat", "results"];
 
+// keys that are never text, whatever byte the terminal used (backspace arrives as DEL 0x7f)
+const NAMED = new Set(["backspace", "delete", "tab", "escape", "up", "down", "left", "right", "home", "end", "pageup", "pagedown", "insert", "return", "enter", "linefeed"]);
+
+// typed text: no modifiers, not a named key, no control bytes (DEL included)
+export function printable(k: Key): boolean {
+  return !k.ctrl && !k.meta && !NAMED.has(k.name) && Boolean(k.sequence) && [...k.sequence].every((ch) => ch >= " " && ch !== "\x7f");
+}
+
 // key → token: printable chars as themselves, the rest named (ctrl-k, alt-1, enter, escape…)
 export function token(k: Key): string {
   if (k.ctrl && k.name.length === 1) return `ctrl-${k.name}`;
@@ -43,8 +51,9 @@ export function token(k: Key): string {
   if (k.meta && k.name === "return") return "alt-enter";
   if (k.meta && k.name === "backspace") return "alt-backspace";
   if (k.name === "return" || k.name === "enter") return "enter";
+  if (NAMED.has(k.name)) return k.name;
   if (k.name === "space") return " ";
-  if (k.sequence && k.sequence.length === 1 && k.sequence >= " " && !k.ctrl && !k.meta) return k.sequence;
+  if (printable(k) && k.sequence.length === 1) return k.sequence;
   return k.name;
 }
 
@@ -305,16 +314,26 @@ export function handleKey(s: State, k: Key): Result {
   // typing only exists in a chat: whatever got us elsewhere, keys there are commands
   if (s0.mode === "insert" && s0.view !== "chat") s0.mode = "normal";
 
-  if (s0.help) return t === "escape" || t === "?" || t === "q" ? [{ ...s0, help: false }, []] : [s0, []];
-  if (s0.palette) return paletteKey(s0, k, t);
+  // two fast escs arrive as one alt+esc: both count
+  if (k.name === "escape" && k.meta) {
+    const plain = { ...k, meta: false };
+    const [once, fx1] = handleKey(s0, plain);
+    const [twice, fx2] = handleKey(once, plain);
+    return [twice, [...fx1, ...fx2]];
+  }
 
-  // esc followed quickly by a key arrives as alt+key: in a typing mode, that's esc then the key (as in vim)
+  // esc followed quickly by a key arrives as alt+key: treat it as esc, then the key (as vim does).
+  // alt-1..9 stay pinned chats; alt-enter / alt-backspace are real chords in the prompt
   const escThen = t.match(/^alt-(.)$/);
-  if (escThen && (s0.mode === "insert" || s0.mode === "filter") && !/[1-9]/.test(escThen[1]!)) {
+  if (escThen && !/[1-9]/.test(escThen[1]!)) {
     const [afterEsc, fx1] = handleKey(s0, { name: "escape", ctrl: false, meta: false, shift: false, sequence: "\x1b" });
     const [after, fx2] = handleKey(afterEsc, { name: escThen[1]!, ctrl: false, meta: false, shift: false, sequence: escThen[1]! });
     return [after, [...fx1, ...fx2]];
   }
+
+  if (s0.help) return t === "escape" || t === "?" || t === "q" ? [{ ...s0, help: false }, []] : [s0, []];
+  if (s0.palette) return paletteKey(s0, k, t);
+
   if (s0.mode === "insert") return insertKey(s0, k, t);
   if (s0.mode === "filter") return filterKey(s0, k, t);
 
@@ -353,9 +372,7 @@ function insertKey(s: State, k: Key, t: string): Result {
   if (t === "ctrl-x") {
     return withDraft(s, (d) => (d.files.length ? { ...d, files: d.files.slice(0, -1) } : { ...d, replyTo: undefined }));
   }
-  if (t.length >= 1 && !k.ctrl && !k.meta && k.sequence && [...k.sequence].every((ch) => ch >= " ")) {
-    return withDraft(s, (d) => ed.insert(d, k.sequence));
-  }
+  if (printable(k)) return withDraft(s, (d) => ed.insert(d, k.sequence));
   return [s, []];
 }
 
@@ -377,7 +394,7 @@ function filterKey(s: State, k: Key, t: string): Result {
   if (t === "backspace") return [{ ...s, filter: [...s.filter].slice(0, -1).join("") }, []];
   if (t === "down" || t === "ctrl-n") return moveList(s, 1);
   if (t === "up" || t === "ctrl-p") return moveList(s, -1);
-  if (!k.ctrl && !k.meta && k.sequence && k.sequence >= " ") {
+  if (printable(k)) {
     const next = { ...s, filter: s.filter + k.sequence };
     const first = visibleChats(next)[0];
     return [{ ...next, listSel: first?.id ?? s.listSel }, []];
@@ -499,9 +516,7 @@ function paletteKey(s: State, k: Key, t: string): Result {
     return [{ ...s, palette: { ...p, query: [...p.query].slice(0, -1).join(""), index: 0 } }, []];
   }
   if (t === "ctrl-u") return [{ ...s, palette: { ...p, query: "", index: 0 } }, []];
-  if (!k.ctrl && !k.meta && k.sequence && [...k.sequence].every((ch) => ch >= " ")) {
-    return [{ ...s, palette: { ...p, query: p.query + k.sequence, index: 0 } }, []];
-  }
+  if (printable(k)) return [{ ...s, palette: { ...p, query: p.query + k.sequence, index: 0 } }, []];
   return [s, []];
 }
 

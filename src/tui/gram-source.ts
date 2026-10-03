@@ -66,6 +66,7 @@ function toSummary(d: Dialog, me: string): ChatSummary | undefined {
 export class GramSource implements DataSource {
   private client!: TelegramClient;
   private me = "";
+  private label = "";
   private entities = new Map<string, Entity>();
   private listeners = new Set<(e: SourceEvent) => void>();
   private detach: (() => void) | undefined;
@@ -91,16 +92,21 @@ export class GramSource implements DataSource {
       if (account && this.client) setSessionPath(prev.path, prev.account);
       throw err;
     }
-    const me = (await client.getMe()).id.toString();
+    const self = await client.getMe();
     this.detach?.();
     this.client = client;
-    this.me = me;
+    this.me = self.id.toString();
+    this.label = self.username ? `@${self.username}` : [self.firstName, self.lastName].filter(Boolean).join(" ") || `id ${this.me}`;
     this.entities.clear();
     this.attach();
   }
 
   account(): string {
     return activeAccount();
+  }
+
+  accountLabel(): string {
+    return this.label;
   }
 
   accounts(): string[] {

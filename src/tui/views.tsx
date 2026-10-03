@@ -7,6 +7,7 @@ import { chatById, currentDraft, draftKey, hasDraft, visibleChats, type State } 
 import type { ChatSummary, Msg } from "./types";
 
 const RGBADefaultBg = RGBA.defaultBackground();
+const SCROLLBAR = { trackOptions: { foregroundColor: C.gray, backgroundColor: C.bg } };
 const DIM = TextAttributes.DIM;
 const BOLD = TextAttributes.BOLD;
 
@@ -25,13 +26,13 @@ export function Header({ s, cols }: { s: State; cols: number }) {
       : s.view === "results" && s.results
         ? `search "${s.results.query}"${s.results.scope ? ` in ${chatById(s, s.results.scope)?.title ?? "chat"}` : ""}`
         : `${s.chats.filter((c) => c.unread > 0).length} unread chats · ${s.chats.length} loaded`;
-  const right = `${s.online ? "" : "offline · "}${s.account}   ? help`;
+  const right = `${s.online ? "" : "offline · "}${s.account} ${s.accountLabel} · ga switch   ? help`;
   return (
     <box height={1} flexDirection="row">
       <text attributes={BOLD} fg={C.accent}>
         {" supertelegram "}
       </text>
-      <text>{fit(where, Math.max(10, cols - 18 - width(right)))}</text>
+      <text fg={C.fg}>{fit(where, Math.max(10, cols - 18 - width(right)))}</text>
       <box flexGrow={1} />
       <text fg={s.online ? C.gray : C.red}>{right + " "}</text>
     </box>
@@ -66,7 +67,7 @@ export function ChatList({ s, cols, rows }: { s: State; cols: number; rows: numb
   if (!chats.length) return <text fg={C.gray}>{s.filter ? ` no chats matching "${s.filter}"` : " no chats"}</text>;
 
   return (
-    <scrollbox ref={ref} flexGrow={1} scrollY viewportCulling>
+    <scrollbox ref={ref} flexGrow={1} scrollY viewportCulling scrollbarOptions={SCROLLBAR}>
       {chats.map((c) => {
         const sel = c.id === s.listSel;
         const draft = hasDraft(s.drafts[draftKey(s, c.id)]);
@@ -77,7 +78,7 @@ export function ChatList({ s, cols, rows }: { s: State; cols: number; rows: numb
           <box key={c.id} id={`c${c.id}`} height={1} flexDirection="row">
             <text fg={C.accent}>{sel ? "▌" : " "}</text>
             <text fg={draft ? C.yellow : c.muted ? C.gray : C.accent}>{`${marker} `}</text>
-            <text attributes={unread ? BOLD : sel ? BOLD : 0}>{pad(fit(c.title, titleW), titleW)}</text>
+            <text fg={C.fg} attributes={unread ? BOLD : sel ? BOLD : 0}>{pad(fit(c.title, titleW), titleW)}</text>
             <text fg={c.mentions ? C.yellow : c.muted ? C.gray : C.accent} attributes={c.muted ? DIM : BOLD}>
               {padStart(badge, badgeW - 1) + " "}
             </text>
@@ -122,7 +123,7 @@ function MessageView({ m, prev, sel, s, replied }: { m: Msg; prev?: Msg; sel: bo
           <box flexDirection="row">
             <text fg={C.gray}>{"> "}</text>
             <box flexGrow={1} flexDirection="column">
-              {body ? <text wrapMode="word">{body}</text> : null}
+              {body ? <text fg={C.fg} wrapMode="word">{body}</text> : null}
               {media && <text fg={C.blue}>{media}</text>}
             </box>
             <text fg={C.gray} attributes={DIM}>{` ${meta}`}</text>
@@ -156,7 +157,7 @@ function MessageView({ m, prev, sel, s, replied }: { m: Msg; prev?: Msg; sel: bo
               </text>
             )}
             {body ? (
-              <text wrapMode="word" attributes={m.action ? DIM : 0}>
+              <text fg={C.fg} wrapMode="word" attributes={m.action ? DIM : 0}>
                 {body}
               </text>
             ) : null}
@@ -204,7 +205,7 @@ export function ChatView({ s, cols, rows }: { s: State; cols: number; rows: numb
 
   return (
     <box flexDirection="column" flexGrow={1}>
-      <scrollbox ref={ref} flexGrow={1} scrollY viewportCulling stickyScroll stickyStart="bottom">
+      <scrollbox ref={ref} flexGrow={1} scrollY viewportCulling stickyScroll stickyStart="bottom" scrollbarOptions={SCROLLBAR}>
         {items}
       </scrollbox>
       {o.newBelow > 0 && (
@@ -232,7 +233,7 @@ export function Prompt({ s, cols }: { s: State; cols: number }) {
     const prefix = i === 0 ? "> " : "  ";
     if (!insert || !d || d.cursor < start || d.cursor > start + line.length) {
       return (
-        <text key={i}>
+        <text fg={C.fg} key={i}>
           <span fg={C.gray}>{prefix}</span>
           {line}
         </text>
@@ -241,10 +242,12 @@ export function Prompt({ s, cols }: { s: State; cols: number }) {
     const at = d.cursor - start;
     const ch = [...line.slice(at)][0] ?? " ";
     return (
-      <text key={i}>
+      <text fg={C.fg} key={i}>
         <span fg={C.gray}>{prefix}</span>
         {line.slice(0, at)}
-        <span attributes={TextAttributes.INVERSE}>{ch}</span>
+        <span fg={C.bg} bg={C.fg}>
+          {ch}
+        </span>
         {line.slice(at + ch.length)}
       </text>
     );
@@ -279,7 +282,7 @@ export function Results({ s, cols, rows }: { s: State; cols: number; rows: numbe
   if (r.loading) return <text fg={C.gray}>{` searching for "${r.query}"…`}</text>;
   if (!r.hits.length) return <text fg={C.gray}>{` no messages matching "${r.query}". esc to go back`}</text>;
   return (
-    <scrollbox ref={ref} flexGrow={1} scrollY viewportCulling>
+    <scrollbox ref={ref} flexGrow={1} scrollY viewportCulling scrollbarOptions={SCROLLBAR}>
       {r.hits.map((h, i) => {
         const who = h.msg.out ? "you" : (h.msg.sender ?? h.msg.senderId ?? h.chat.title);
         const head = `${shortTime(h.msg.date)} ${h.chat.title} · ${who}: `;
@@ -287,7 +290,7 @@ export function Results({ s, cols, rows }: { s: State; cols: number; rows: numbe
           <box key={`${h.chat.id}:${h.msg.id}`} id={`r${i}`} height={1} flexDirection="row">
             <text fg={C.accent}>{i === r.sel ? "▌" : " "}</text>
             <text fg={C.gray}>{fit(head, Math.floor(cols * 0.45))}</text>
-            <text attributes={i === r.sel ? BOLD : 0}>{fit(h.msg.text || (h.msg.media ? `[${h.msg.media}]` : ""), cols - Math.min(width(head), Math.floor(cols * 0.45)) - 2)}</text>
+            <text fg={C.fg} attributes={i === r.sel ? BOLD : 0}>{fit(h.msg.text || (h.msg.media ? `[${h.msg.media}]` : ""), cols - Math.min(width(head), Math.floor(cols * 0.45)) - 2)}</text>
           </box>
         );
       })}
@@ -312,10 +315,12 @@ export function Palette({ s, cols }: { s: State; cols: number }) {
   const start = Math.max(0, Math.min(p.index - Math.floor(visible / 2), entries.length - visible));
   return (
     <box position="absolute" top={2} left={Math.max(0, Math.floor((cols - w) / 2))} width={w} zIndex={10} border borderStyle="rounded" borderColor={C.accent} title={` ${PALETTE_TITLES[p.kind]} `} flexDirection="column" backgroundColor={RGBADefaultBg}>
-      <text>
+      <text fg={C.fg}>
         <span fg={C.accent}>{"> "}</span>
         {p.query}
-        <span attributes={TextAttributes.INVERSE}>{" "}</span>
+        <span fg={C.bg} bg={C.fg}>
+          {" "}
+        </span>
       </text>
       <Rule cols={w - 2} />
       {entries.length === 0 && <text fg={C.gray}>{p.kind.startsWith("search") || p.kind === "file" ? " type, then enter" : " no matches"}</text>}
@@ -327,7 +332,7 @@ export function Palette({ s, cols }: { s: State; cols: number }) {
         return (
           <box key={`${idx}:${e.label}`} height={1} flexDirection="row">
             <text fg={C.accent}>{sel ? "▌" : " "}</text>
-            <text attributes={sel ? BOLD : 0}>{pad(fit(e.label + (e.detail ? `  ${e.detail}` : ""), labelW), labelW)}</text>
+            <text fg={C.fg} attributes={sel ? BOLD : 0}>{pad(fit(e.label + (e.detail ? `  ${e.detail}` : ""), labelW), labelW)}</text>
             <text fg={C.gray}>{hint}</text>
           </box>
         );
@@ -346,16 +351,16 @@ export function Help({ s, cols }: { s: State; cols: number }) {
       {rowsList.map((r) => (
         <box key={r.title} height={1} flexDirection="row">
           <text fg={C.accent}>{pad(fit(r.keys, keyW - 1), keyW)}</text>
-          <text>{fit(r.title, w - keyW - 3)}</text>
+          <text fg={C.fg}>{fit(r.title, w - keyW - 3)}</text>
         </box>
       ))}
       <box height={1} flexDirection="row">
         <text fg={C.accent}>{pad("alt-1..9", keyW)}</text>
-        <text>pinned chats 1–9</text>
+        <text fg={C.fg}>pinned chats 1–9</text>
       </box>
       <box height={1} flexDirection="row">
         <text fg={C.accent}>{pad("ctrl-c ctrl-c", keyW)}</text>
-        <text>quit (drafts are kept)</text>
+        <text fg={C.fg}>quit (drafts are kept)</text>
       </box>
       <text fg={C.gray} attributes={DIM}>
         {" in the prompt: enter send · alt-enter newline · ctrl-v paste image · ctrl-x drop chip · esc keeps the draft"}
@@ -374,10 +379,17 @@ const HINTS: Record<string, string> = {
 
 export function StatusBar({ s, cols }: { s: State; cols: number }) {
   const mode = s.palette ? "PALETTE" : s.mode.toUpperCase();
-  const hint = s.toast ? s.toast.text : s.mode === "filter" ? `/${s.filter}  ·  ${HINTS.filter}` : s.mode === "insert" ? HINTS.insert : HINTS[s.view];
+  // while typing, always say who you're sending as
+  const hint = s.toast
+    ? s.toast.text
+    : s.mode === "filter"
+      ? `/${s.filter}  ·  ${HINTS.filter}`
+      : s.mode === "insert"
+        ? `sending as ${s.accountLabel || s.account} · ${HINTS.insert}`
+        : HINTS[s.view];
   return (
     <box height={1} flexDirection="row">
-      <text attributes={BOLD | TextAttributes.INVERSE} fg={s.mode === "insert" ? C.green : C.accent}>{` ${mode} `}</text>
+      <text attributes={BOLD} fg={C.bg} bg={s.mode === "insert" ? C.green : C.accent}>{` ${mode} `}</text>
       <text fg={s.toast?.error ? C.red : C.gray}>{" " + fit(`${s.pending ? `${s.pending}… ` : ""}${hint ?? ""}`, cols - mode.length - 4)}</text>
     </box>
   );

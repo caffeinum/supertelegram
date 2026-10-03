@@ -17,6 +17,9 @@ export class FakeSource implements DataSource {
   account() {
     return this.accountName;
   }
+  accountLabel() {
+    return `@${this.accountName}_user`;
+  }
   accounts() {
     return this.accountNames;
   }

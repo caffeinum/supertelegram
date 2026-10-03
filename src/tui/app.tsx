@@ -84,7 +84,7 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
         case "markUnread":
           return source.markUnread(e.chatId).catch(fail("couldn't mark unread"));
         case "switchAccount":
-          return source.switchAccount(e.name).then(() => act({ type: "accountSwitched", account: e.name }), fail(`couldn't switch to ${e.name}`));
+          return source.switchAccount(e.name).then(() => act({ type: "accountSwitched", account: e.name, label: source.accountLabel() }), fail(`couldn't switch to ${e.name}`));
         case "search":
           return source.search(e.query, e.chatId).then((hits) => act({ type: "searchResults", hits }), fail("search failed"));
         case "openMedia":

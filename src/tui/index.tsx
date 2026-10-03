@@ -24,7 +24,7 @@ class Crash extends Component<{ onCrash: (e: unknown) => void; children: ReactNo
 export async function runTui(source?: DataSource): Promise<void> {
   // everything that can fail before drawing happens before taking over the screen
   const src = source ?? (await GramSource.open());
-  const initial = initialState(src.account(), src.accounts(), loadDrafts());
+  const initial = initialState(src.account(), src.accounts(), loadDrafts(), src.accountLabel());
   const renderer = await createCliRenderer({ exitOnCtrlC: false });
   let crashed: unknown;
   try {
