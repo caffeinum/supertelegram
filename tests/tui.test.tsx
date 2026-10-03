@@ -43,6 +43,7 @@ type Setup = { t: Awaited<ReturnType<typeof testRender>> };
 async function setup(opts: { width?: number; height?: number; drafts?: Record<string, Draft>; messages?: Record<string, Msg[]> } = {}) {
   const src = new FakeSource(chats(), opts.messages ?? msgs());
   const saved: Record<string, Draft>[] = [];
+  const opened: string[] = [];
   let quit = false;
   const t = await testRender(
     <App
@@ -50,7 +51,9 @@ async function setup(opts: { width?: number; height?: number; drafts?: Record<st
       initial={initialState("default", ["default", "work"], opts.drafts ?? {}, "@default_user")}
       onQuit={() => (quit = true)}
       persistDrafts={(d) => saved.push(structuredClone(d))}
-      openFile={async () => {}}
+      openFile={async (p: string) => {
+        opened.push(p);
+      }}
     />,
     { width: opts.width ?? 100, height: opts.height ?? 30, exitOnCtrlC: false }
   );
@@ -86,7 +89,7 @@ async function setup(opts: { width?: number; height?: number; drafts?: Record<st
   };
   await until((f) => f.includes("Covers!"));
   teardown = () => t.renderer.destroy();
-  return { t, src, saved, keys, frame, until, quit: () => quit };
+  return { t, src, saved, opened, keys, frame, until, quit: () => quit };
 }
 
 afterEach(() => {
@@ -347,6 +350,89 @@ describe("preload", () => {
     await s.until((x) => x.includes("Chat 0"));
     await s.keys("G");
     await s.until(() => s.src.calls.some((c) => c.method === "history" && c.args[0] === "911"));
+  });
+});
+
+describe("scrolling like vim", () => {
+  const long = () => Array.from({ length: 70 }, (_, i): Msg => ({ id: i + 1, date: now - 7000 + i * 60, out: i % 3 === 0, senderId: "11", sender: "mnk", text: `msg ${i + 1}` }));
+  const chatArea = (f: string) => f.split("\n").slice(1, 12).map((l) => l.replace("▌", " ")).join("\n");
+  const cursorRow = (f: string) => f.split("\n").findIndex((l) => l.startsWith("▌"));
+
+  test("k moves the cursor without scrolling until it nears the top", async () => {
+    const s = await setup({ height: 24, messages: { ...msgs(), "-100": long() } });
+    await s.keys("enter");
+    await s.until((x) => x.includes("msg 70"));
+    await Bun.sleep(60);
+    await s.t.renderOnce();
+    const before = chatArea(s.frame());
+    await s.keys("k", "k");
+    await Bun.sleep(60);
+    await s.t.renderOnce();
+    expect(chatArea(s.frame())).toBe(before); // view didn't move
+    for (let i = 0; i < 12; i++) await s.keys("k");
+    await Bun.sleep(80);
+    await s.t.renderOnce();
+    expect(chatArea(s.frame())).not.toBe(before); // now it scrolled
+    expect(cursorRow(s.frame())).toBeGreaterThanOrEqual(3); // with context above the cursor
+  });
+
+  test("ctrl-u scrolls half a page and keeps the cursor on screen", async () => {
+    const s = await setup({ height: 24, messages: { ...msgs(), "-100": long() } });
+    await s.keys("enter");
+    await s.until((x) => x.includes("msg 70"));
+    await Bun.sleep(60);
+    await s.keys("ctrl-u");
+    await s.until((x) => !x.includes("msg 70") && cursorRow(x) > 0);
+  });
+});
+
+describe("links, images, filter, accounts", () => {
+  test("gx opens the link in the selected message", async () => {
+    const m = msgs();
+    m["-100"]!.push({ id: 4, date: now, out: false, senderId: "11", sender: "mnk", text: "tx https://solscan.io/tx/abc", urls: ["https://solscan.io/tx/abc"] });
+    const s = await setup({ messages: m });
+    await s.keys("enter");
+    await s.until((x) => x.includes("solscan"));
+    await s.keys("gx");
+    await s.until(() => s.opened.includes("https://solscan.io/tx/abc"));
+  });
+
+  test("v shows the photo inline; esc closes it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "st-img-"));
+    const png = join(dir, "p.png");
+    writeFileSync(png, Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc0000003010100c9fe92ef0000000049454e44ae426082", "hex"));
+    const s = await setup();
+    s.src.imagePath = png;
+    await s.keys("gc", "kate", "enter");
+    await s.until((x) => x.includes("look at this"));
+    await s.keys("v");
+    await s.until((x) => x.includes("esc close") && !x.includes("loading image"));
+    await s.keys("esc");
+    await s.until((x) => !x.includes("esc close") && x.includes("look at this"));
+  });
+
+  test("opening a chat from a filtered list resets the filter", async () => {
+    const s = await setup();
+    await s.keys("/", "kat", "enter", "enter");
+    await s.until((x) => x.includes("look at this"));
+    await s.keys("h");
+    await s.until((x) => x.includes("Covers!") && x.includes("Kate"));
+  });
+
+  test("other accounts are warmed: ga shows them instantly, and calls wait for the real switch", async () => {
+    const s = await setup();
+    await s.until(() => s.src.peeks.includes("work"));
+    await Bun.sleep(50);
+    s.src.switchDelayMs = 800;
+    const t0 = Date.now();
+    await s.keys("ga", "work", "enter");
+    await s.until((x) => x.includes("work team"), 400);
+    expect(Date.now() - t0).toBeLessThan(700);
+    await s.keys("enter", "i", "hi team", "enter");
+    await s.until(() => s.src.calls.some((c) => c.method === "send"), 3000);
+    const send = s.src.calls.find((c) => c.method === "send")!;
+    expect(send.args[0]).toBe("555");
+    expect(send.args[3]).toBe("work"); // sent only after the client really switched
   });
 });
 

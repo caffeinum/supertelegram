@@ -5,6 +5,8 @@ export class FakeSource implements DataSource {
   calls: { method: string; args: unknown[] }[] = [];
   failNextSend: string | undefined;
   historyDelayMs = 0;
+  switchDelayMs = 0;
+  imagePath: string | undefined;
   private listeners = new Set<(e: SourceEvent) => void>();
   private nextId = 1000;
 
@@ -26,10 +28,20 @@ export class FakeSource implements DataSource {
   }
   async switchAccount(name: string) {
     this.calls.push({ method: "switchAccount", args: [name] });
+    if (this.switchDelayMs) await Bun.sleep(this.switchDelayMs);
     this.accountName = name;
+  }
+  peeks: string[] = [];
+  async peek(account: string, topChats: number) {
+    this.peeks.push(account);
+    const chats = [{ id: "555", title: `${account} team`, kind: "group" as const, unread: 2, mentions: 0, muted: false, pinned: false, last: { text: `hello from ${account}`, out: false, date: Math.floor(Date.now() / 1000) } }];
+    const history = { "555": [{ id: 1, date: Math.floor(Date.now() / 1000), out: false, senderId: "9", sender: "Teammate", text: `hello from ${account}` }] };
+    void topChats;
+    return { label: `@${account}_user`, chats, history };
   }
   async listChats(limit: number) {
     this.calls.push({ method: "listChats", args: [limit] });
+    if (this.accountName !== "default") return (await this.peek(this.accountName, 0)).chats;
     return this.chats.map((c) => ({ ...c }));
   }
   async history(chatId: string, opts: { limit: number; before?: number }) {
@@ -39,7 +51,7 @@ export class FakeSource implements DataSource {
     return all.slice(-opts.limit);
   }
   async send(chatId: string, text: string, opts: SendOpts) {
-    this.calls.push({ method: "send", args: [chatId, text, opts] });
+    this.calls.push({ method: "send", args: [chatId, text, opts, this.accountName] });
     if (this.failNextSend) {
       const err = this.failNextSend;
       this.failNextSend = undefined;
@@ -67,7 +79,8 @@ export class FakeSource implements DataSource {
   }
   async download(chatId: string, msgId: number) {
     this.calls.push({ method: "download", args: [chatId, msgId] });
-    return `/tmp/${chatId}-${msgId}.jpg`;
+    if (this.imagePath) return this.imagePath;
+    throw new Error("no such file in the fake");
   }
   subscribe(cb: (e: SourceEvent) => void) {
     this.listeners.add(cb);
@@ -78,6 +91,6 @@ export class FakeSource implements DataSource {
   }
   async close() {}
   sent() {
-    return this.calls.filter((c) => c.method === "send").map((c) => c.args);
+    return this.calls.filter((c) => c.method === "send").map((c) => c.args.slice(0, 3));
   }
 }

@@ -1,4 +1,5 @@
 import { RGBA, TextAttributes, type ScrollBoxRenderable } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
 import { useEffect, useRef } from "react";
 import { basename } from "node:path";
 import { C, dayLabel, fit, hhmm, pad, padStart, sameDay, senderColor, shortTime, width } from "./format";
@@ -11,11 +12,87 @@ const SCROLLBAR = { trackOptions: { foregroundColor: C.gray, backgroundColor: C.
 const DIM = TextAttributes.DIM;
 const BOLD = TextAttributes.BOLD;
 
-function useScrollTo(ref: React.RefObject<ScrollBoxRenderable | null>, id: string | undefined, deps: unknown[]) {
+const SCROLLOFF = 3;
+
+// vim-like scrolling, done after layout (post-render) so positions are fresh:
+// - scrolloff: the view scrolls only when the cursor comes within SCROLLOFF rows of an edge
+// - content inserted above an unmoved cursor (older history) keeps the cursor on its screen row
+// - ctrl-d / ctrl-u scroll half a page, then pick the row now under the cursor
+// mouse scrolling is left alone: nothing here runs unless the cursor, the content or a request changed
+function useCursorScroll(
+  ref: React.RefObject<ScrollBoxRenderable | null>,
+  selId: string | undefined,
+  rowIds: string[],
+  request: State["scrollReq"],
+  onPick: ((id: string) => void) | undefined
+) {
+  const renderer = useRenderer();
+  const st = useRef({ selId, rowIds, request, onPick, lastSel: undefined as string | undefined, handled: request?.seq ?? 0, anchor: undefined as { id: string; offset: number; top: number } | undefined });
+  Object.assign(st.current, { selId, rowIds, request, onPick });
+
   useEffect(() => {
-    if (id && ref.current) ref.current.scrollChildIntoView(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+    const fn = () => {
+      const box = ref.current;
+      const s = st.current;
+      if (!box || !s.selId) return;
+      const vpTop = box.viewport.y;
+      const vpH = box.viewport.height;
+      const child = box.content.findDescendantById(s.selId);
+      if (!child || vpH <= 0) return;
+      let offset = child.y - vpTop;
+      let moved = false;
+
+      if (s.request && s.request.seq !== s.handled) {
+        s.handled = s.request.seq;
+        const delta = s.request.dir * Math.max(1, Math.floor(vpH / 2));
+        const before = box.scrollTop;
+        box.scrollBy(delta);
+        const actual = box.scrollTop - before;
+        // the row that will sit where the cursor is now
+        const want = child.y + (actual !== 0 ? actual : delta);
+        let best: string | undefined;
+        let bestDist = Infinity;
+        for (const id of s.rowIds) {
+          const r = box.content.findDescendantById(id);
+          if (!r) continue;
+          const dist = want < r.y ? r.y - want : want >= r.y + r.height ? want - (r.y + r.height - 1) : 0;
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = id;
+          }
+        }
+        s.anchor = undefined;
+        if (best && best !== s.selId) {
+          s.lastSel = best; // already in view: no scrolloff jump after the pick
+          s.onPick?.(best);
+        }
+        renderer.requestRender();
+        return;
+      }
+
+      if (s.anchor && s.anchor.id === s.selId && s.anchor.top === box.scrollTop && s.anchor.offset !== offset) {
+        box.scrollBy(offset - s.anchor.offset);
+        moved = true;
+      } else if (s.selId !== s.lastSel) {
+        if (offset < SCROLLOFF) {
+          box.scrollBy(offset - SCROLLOFF);
+          moved = true;
+        } else if (offset + child.height > vpH - SCROLLOFF) {
+          box.scrollBy(Math.min(offset + child.height - (vpH - SCROLLOFF), offset));
+          moved = true;
+        }
+      }
+      s.lastSel = s.selId;
+      if (moved) {
+        s.anchor = undefined; // measure again after the next layout
+        renderer.requestRender();
+      } else {
+        s.anchor = { id: s.selId, offset, top: box.scrollTop };
+      }
+    };
+    renderer.addPostProcessFn(fn);
+    return () => renderer.removePostProcessFn(fn);
+  }, [renderer, ref]);
 }
 
 export function Header({ s, cols }: { s: State; cols: number }) {
@@ -54,10 +131,10 @@ function preview(c: ChatSummary): string {
   return `${who}${body}`;
 }
 
-export function ChatList({ s, cols, rows }: { s: State; cols: number; rows: number }) {
+export function ChatList({ s, cols, onPick }: { s: State; cols: number; rows: number; onPick?: (id: string) => void }) {
   const ref = useRef<ScrollBoxRenderable>(null);
   const chats = visibleChats(s);
-  useScrollTo(ref, s.listSel ? `c${s.listSel}` : undefined, [s.listSel, chats.length]);
+  useCursorScroll(ref, s.listSel ? `c${s.listSel}` : undefined, chats.map((c) => `c${c.id}`), s.view === "list" ? s.scrollReq : undefined, onPick && ((id) => onPick(id.slice(1))));
   const titleW = Math.min(30, Math.max(14, Math.floor(cols * 0.28)));
   const timeW = 7;
   const badgeW = 5;
@@ -186,10 +263,10 @@ function DaySeparator({ date, cols }: { date: number; cols: number }) {
   );
 }
 
-export function ChatView({ s, cols, rows }: { s: State; cols: number; rows: number }) {
+export function ChatView({ s, cols, onPick }: { s: State; cols: number; rows: number; onPick?: (id: string) => void }) {
   const ref = useRef<ScrollBoxRenderable>(null);
   const o = s.open!;
-  useScrollTo(ref, o.sel !== undefined ? `m${o.sel}` : undefined, [o.sel, o.messages.length]);
+  useCursorScroll(ref, o.sel !== undefined ? `m${o.sel}` : undefined, o.messages.map((m) => `m${m.id}`), s.view === "chat" ? s.scrollReq : undefined, onPick && ((id) => onPick(id.slice(1))));
   const byId = new Map(o.messages.map((m) => [m.id, m]));
 
   const items: React.ReactNode[] = [];
@@ -275,10 +352,10 @@ export function Prompt({ s, cols }: { s: State; cols: number }) {
   );
 }
 
-export function Results({ s, cols, rows }: { s: State; cols: number; rows: number }) {
+export function Results({ s, cols, onPick }: { s: State; cols: number; rows: number; onPick?: (id: string) => void }) {
   const ref = useRef<ScrollBoxRenderable>(null);
   const r = s.results!;
-  useScrollTo(ref, `r${r.sel}`, [r.sel, r.hits.length]);
+  useCursorScroll(ref, `r${r.sel}`, r.hits.map((_, i) => `r${i}`), s.view === "results" ? s.scrollReq : undefined, onPick && ((id) => onPick(id.slice(1))));
   if (r.loading) return <text fg={C.gray}>{` searching for "${r.query}"…`}</text>;
   if (!r.hits.length) return <text fg={C.gray}>{` no messages matching "${r.query}". esc to go back`}</text>;
   return (
@@ -305,6 +382,7 @@ const PALETTE_TITLES: Record<string, string> = {
   search: "search messages everywhere",
   "search-chat": "search in this chat",
   file: "attach a file — type a path",
+  links: "open which link?",
 };
 
 export function Palette({ s, cols }: { s: State; cols: number }) {
@@ -391,6 +469,32 @@ export function StatusBar({ s, cols }: { s: State; cols: number }) {
     <box height={1} flexDirection="row">
       <text attributes={BOLD} fg={C.bg} bg={s.mode === "insert" ? C.green : C.accent}>{` ${mode} `}</text>
       <text fg={s.toast?.error ? C.red : C.gray}>{" " + fit(`${s.pending ? `${s.pending}… ` : ""}${hint ?? ""}`, cols - mode.length - 4)}</text>
+    </box>
+  );
+}
+
+// full-screen inline image: kitty graphics where the terminal supports it (ghostty, cmux, kitty, wezterm),
+// sixel or unicode blocks elsewhere — opentui picks with protocol="auto"
+export function Viewer({ s, cols, rows }: { s: State; cols: number; rows: number }) {
+  const v = s.viewer!;
+  const m = s.open?.chatId === v.chatId ? s.open.messages.find((x) => x.id === v.msgId) : undefined;
+  const who = m ? (m.out ? "you" : (m.sender ?? m.senderId ?? "unknown sender")) : "";
+  const title = ` ${who}${m ? ` · ${hhmm(m.date)} #${m.id}` : ""}${m?.text ? ` · ${m.text}` : ""} `;
+  return (
+    <box position="absolute" top={0} left={0} width={cols} height={rows} zIndex={30} flexDirection="column" backgroundColor={RGBADefaultBg}>
+      <text fg={C.accent} attributes={BOLD}>
+        {fit(title, cols)}
+      </text>
+      <box flexGrow={1} alignItems="center" justifyContent="center">
+        {v.error ? (
+          <text fg={C.red}>{` couldn't load this image: ${v.error}. press o to open it in another app.`}</text>
+        ) : v.path ? (
+          <image source={v.path} fit="fit" protocol="auto" width={cols} height={rows - 2} />
+        ) : (
+          <text fg={C.gray}>{" loading image…"}</text>
+        )}
+      </box>
+      <text fg={C.gray}>{fit(" esc close · j/k next/prev media in this chat · o open in another app", cols)}</text>
     </box>
   );
 }

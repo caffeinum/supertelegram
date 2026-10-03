@@ -39,5 +39,8 @@ drive it through a real tty with `expect`. send keystrokes separately with a pau
 - never test-send to real people: use `me`.
 - in saved messages telegram sets `out=false` on your own messages; compare the sender with your id.
 - expect harnesses must not hardcode the active account in prompts (aleks switches it).
+- scrolling: opentui frame callbacks run before layout; anything reading positions (scrolloff, prepend anchoring, half-page) runs as a post-process fn (`useCursorScroll` in views.tsx).
+- account switching: effects that call telegram wait for an in-flight switch (`switching` in app.tsx), so a warmed account shown early can't send as the old one.
+- downloads must keep the file extension (`defaultFileName`), or `open` hands a jpeg to TextEdit.
 - real terminals send DEL (0x7f) for backspace; the opentui mock sends \b. classify keys by name before treating a byte as text.
 - colors: only `C.fg`/`C.bg` (terminal defaults) and palette indexes — opentui's implicit text color is white rgb, invisible on light themes (aleks runs a light cmux theme). the theme-safe test fails on any rgb color or inverse video.

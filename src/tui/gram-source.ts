@@ -6,10 +6,11 @@ import { NewMessage, type NewMessageEvent } from "telegram/events";
 import { Raw } from "telegram/events/Raw";
 import { UpdateConnectionState } from "telegram/network";
 import type { Dialog } from "telegram/tl/custom/dialog";
-import { activeAccount, fetchDialogs, getClient, resolveIn, sessionOverride, setKeepAlive, setSessionPath, shutdown, type Entity } from "../client/telegram";
+import { activeAccount, fetchDialogs, getClient, getClientFor, resolveIn, sessionOverride, setKeepAlive, setSessionPath, shutdown, type Entity } from "../client/telegram";
 import { accountSessionPath, listAccounts } from "../config/accounts";
 import { chatType, displayName, mediaLabel, peerId, username } from "../cli/format";
 import { CliError } from "../cli/errors";
+import { defaultFileName } from "../cli/chat";
 import type { ChatSummary, DataSource, Msg, SearchHit, SendOpts, SourceEvent } from "./types";
 
 type TgMessage = Api.Message | Api.MessageService;
@@ -19,9 +20,25 @@ function isEntity(e: unknown): e is Entity {
 }
 
 // telegram leaves `out` false on your own messages in saved messages, so compare the sender with me too
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
+
+function linksOf(m: TgMessage): string[] | undefined {
+  if (m instanceof Api.MessageService) return undefined;
+  const found = new Set<string>(m.message.match(URL_RE) ?? []);
+  for (const e of m.entities ?? []) {
+    if (e instanceof Api.MessageEntityTextUrl) found.add(e.url);
+    if (e instanceof Api.MessageEntityUrl) {
+      const raw = m.message.slice(e.offset, e.offset + e.length);
+      found.add(/^https?:\/\//.test(raw) ? raw : `https://${raw}`);
+    }
+  }
+  return found.size ? [...found] : undefined;
+}
+
 export function toMsg(m: TgMessage, sender: Entity | undefined, me?: string): Msg {
   const service = m instanceof Api.MessageService;
   return {
+    urls: linksOf(m),
     id: m.id,
     date: m.date,
     out: Boolean(m.out) || (me !== undefined && m.senderId?.toString() === me),
@@ -125,6 +142,27 @@ export class GramSource implements DataSource {
     return e;
   }
 
+  async peek(account: string, topChats: number) {
+    const client = await getClientFor(accountSessionPath(account));
+    if (!(await client.checkAuthorization())) throw new CliError(`account "${account}" is not logged in`);
+    const self = await client.getMe();
+    const me = self.id.toString();
+    const label = self.username ? `@${self.username}` : [self.firstName, self.lastName].filter(Boolean).join(" ") || `id ${me}`;
+    const dialogs = await fetchDialogs(client, 200, true);
+    const chats: ChatSummary[] = [];
+    const history: Record<string, Msg[]> = {};
+    for (const d of dialogs) {
+      const s = toSummary(d, me);
+      if (s) chats.push(s);
+    }
+    for (const d of dialogs.slice(0, topChats)) {
+      if (!isEntity(d.entity) || !d.id) continue;
+      const msgs = (await client.getMessages(d.entity, { limit: 60 })) as TgMessage[];
+      history[d.id.toString()] = msgs.map((m) => toMsg(m, m.sender as Entity | undefined, me)).reverse();
+    }
+    return { label, chats, history };
+  }
+
   async listChats(limit: number): Promise<ChatSummary[]> {
     const dialogs = await fetchDialogs(this.client, limit, true);
     const out: ChatSummary[] = [];
@@ -199,7 +237,8 @@ export class GramSource implements DataSource {
     if (!m?.media) throw new Error(`message #${msgId} has no media`);
     const dir = join(tmpdir(), "supertelegram");
     mkdirSync(dir, { recursive: true });
-    const target = join(dir, `${chatId}-${msgId}`);
+    // keep the real extension, or the os opens a jpeg as text
+    const target = join(dir, `${chatId}-${defaultFileName(m)}`);
     const path = await this.client.downloadMedia(m, { outputFile: target });
     if (typeof path !== "string") throw new Error(`download of #${msgId} produced no file`);
     return path;

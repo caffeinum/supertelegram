@@ -50,15 +50,17 @@ it's modal like vim, so letters never land in a message by accident:
 
 | | keys |
 |---|---|
-| move / scroll | `j` `k` · `ctrl-d` `ctrl-u` · `gg` (loads older) `G` |
+| move / scroll | `j` `k` (the view scrolls only near the edge) · `ctrl-d` `ctrl-u` half a page · `gg` (loads older) `G` |
 | open / back | `enter` · `h` / `esc` |
 | write | `i` (or `enter` in a chat) · `enter` sends · `alt-enter` newline · `esc` keeps the draft |
-| reply / media / copy | `r` on a selected message · `o` open attachment · `y` copy text |
+| reply / media / copy | `r` on a selected message · `v` view image inline (j/k through the chat's media) · `o` open in another app · `gx` open link · `y` copy text |
 | image | `ctrl-v` pastes the clipboard image (or drag a file in) as an attachment chip |
 | go to | `gc` chat… · `gs` search everywhere · `gu` next unread · `gi` chat list · `gm` saved messages · `ga` account |
 | everything | `ctrl-k` or `:` — command palette with every feature and its shortcut · `?` help |
 | quit | `ctrl-c ctrl-c` or `:q` — drafts are kept per chat (`~/.supertelegram/drafts.json`) |
 
+- chats open instantly: the top of the list and the chats around your cursor are preloaded (never marked read), and so are your other accounts, so `ga` is instant too
+- images render inline with the kitty graphics protocol (ghostty, cmux, kitty, wezterm) and as block characters elsewhere
 - opening a chat marks it read; moving through the list never does
 - a draft belongs to its chat: switching chats, incoming messages or reordering can't send it elsewhere
 - a failed send puts the text back in the prompt and is never retried

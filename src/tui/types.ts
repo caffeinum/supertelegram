@@ -24,6 +24,7 @@ export interface Msg {
   media?: string;
   action?: string;
   replyTo?: number;
+  urls?: string[]; // links in the text, including hidden ones behind link text
 }
 
 export interface SearchHit {
@@ -47,6 +48,8 @@ export interface DataSource {
   accountLabel(): string; // who you are on this account, e.g. @alekshasbeen
   accounts(): string[];
   switchAccount(name: string): Promise<void>;
+  // read another account without switching to it: its identity, chat list and the newest messages of its top chats
+  peek(account: string, topChats: number): Promise<{ label: string; chats: ChatSummary[]; history: Record<string, Msg[]> }>;
   listChats(limit: number): Promise<ChatSummary[]>;
   // chronological (oldest first). `before` pages back; `around` returns a page ending at that id
   history(chatId: string, opts: { limit: number; before?: number }): Promise<Msg[]>;

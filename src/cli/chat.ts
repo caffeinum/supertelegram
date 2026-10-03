@@ -322,7 +322,7 @@ const EXT: Record<string, string> = {
   "application/pdf": ".pdf", "application/zip": ".zip", "text/plain": ".txt",
 };
 
-function defaultFileName(msg: Api.Message): string {
+export function defaultFileName(msg: Api.Message): string {
   const m = msg.media;
   if (m instanceof Api.MessageMediaPhoto) return `${msg.id}.jpg`;
   if (m instanceof Api.MessageMediaDocument && m.document instanceof Api.Document) {

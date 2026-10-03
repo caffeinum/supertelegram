@@ -7,7 +7,7 @@ import { saveDrafts } from "./drafts";
 import { handleKey, type Key } from "./keys";
 import { apply, type Action, type Effect, type State } from "./state";
 import type { DataSource } from "./types";
-import { ChatList, ChatView, Header, Help, Palette, Prompt, Results, StatusBar } from "./views";
+import { ChatList, ChatView, Header, Help, Palette, Prompt, Results, StatusBar, Viewer } from "./views";
 
 const HISTORY_PAGE = 60;
 const PREFETCH_CONCURRENCY = 2;
@@ -35,9 +35,19 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
 
   const runRef = useRef<(f: Step) => void>(() => {});
   const act = useCallback((a: Action) => runRef.current((s) => apply(s, a)), []);
+  const fail0 = useCallback((what: string) => (err: unknown) => act({ type: "toast", text: `${what}: ${message(err)}`, error: true }), [act]);
+
+  // telegram calls issued while an account switch is in flight wait for it: never act as the old account
+  const switching = useRef<Promise<unknown>>(Promise.resolve());
 
   const exec = useCallback(
     async (e: Effect) => {
+      if (e.type === "switchAccount") {
+        const p = source.switchAccount(e.name);
+        switching.current = p.catch(() => undefined);
+        return p.then(() => act({ type: "accountSwitched", account: e.name, label: source.accountLabel() }), fail0(`couldn't switch to ${e.name}`));
+      }
+      if (e.type !== "saveDrafts" && e.type !== "quit" && e.type !== "copy" && e.type !== "warmAccounts") await switching.current;
       const fail = (what: string) => (err: unknown) => act({ type: "toast", text: `${what}: ${message(err)}`, error: true });
       switch (e.type) {
         case "prefetch": {
@@ -113,8 +123,14 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
           return source.markRead(e.chatId).catch(fail("couldn't mark read"));
         case "markUnread":
           return source.markUnread(e.chatId).catch(fail("couldn't mark unread"));
-        case "switchAccount":
-          return source.switchAccount(e.name).then(() => act({ type: "accountSwitched", account: e.name, label: source.accountLabel() }), fail(`couldn't switch to ${e.name}`));
+        case "warmAccounts":
+          for (const account of e.accounts) {
+            source
+              .peek(account, 5)
+              .then((w) => act({ type: "accountWarmed", account, ...w }))
+              .catch(() => undefined); // an account that can't be warmed just switches the slow way
+          }
+          return;
         case "search":
           return source.search(e.query, e.chatId).then((hits) => act({ type: "searchResults", hits }), fail("search failed"));
         case "openMedia":
@@ -125,6 +141,13 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
               act({ type: "toast", text: `opened ${path}` });
             })
             .catch(fail("couldn't open the attachment"));
+        case "openUrl":
+          return (openFile ?? defaultOpen)(e.url).catch(fail("couldn't open the link"));
+        case "viewImage":
+          return source
+            .download(e.chatId, e.msgId)
+            .then((path) => act({ type: "viewerReady", chatId: e.chatId, msgId: e.msgId, path }))
+            .catch((err) => act({ type: "viewerReady", chatId: e.chatId, msgId: e.msgId, error: message(err) }));
         case "copy":
           return copyText(e.text).then(() => act({ type: "toast", text: `copied ${e.what}` }), fail("copy failed"));
         case "pasteImage": {
@@ -183,16 +206,18 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
     act({ type: "insertText", text });
   });
 
+  const pick = useCallback((id: string) => act({ type: "pick", id }), [act]);
+
   const main =
     state.view === "chat" && state.open ? (
       <>
-        <ChatView s={state} cols={cols} rows={rows} />
+        <ChatView s={state} cols={cols} rows={rows} onPick={pick} />
         <Prompt s={state} cols={cols} />
       </>
     ) : state.view === "results" && state.results ? (
-      <Results s={state} cols={cols} rows={rows} />
+      <Results s={state} cols={cols} rows={rows} onPick={pick} />
     ) : (
-      <ChatList s={state} cols={cols} rows={rows} />
+      <ChatList s={state} cols={cols} rows={rows} onPick={pick} />
     );
 
   return (
@@ -203,6 +228,7 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
       </box>
       <StatusBar s={state} cols={cols} />
       {state.palette && <Palette s={state} cols={cols} />}
+      {state.viewer && <Viewer s={state} cols={cols} rows={rows} />}
       {state.help && <Help s={state} cols={cols} />}
     </box>
   );

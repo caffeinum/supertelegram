@@ -34,7 +34,6 @@ export interface Command {
   run: (s: State) => Result;
 }
 
-const HALF_PAGE = 10;
 const ALL: View[] = ["list", "chat", "results"];
 
 // keys that are never text, whatever byte the terminal used (backspace arrives as DEL 0x7f)
@@ -67,7 +66,7 @@ export function openChat(s: State, chatId: string): Result {
   const markRead = Boolean(chat && chat.unread > 0);
   const chats = markRead ? s.chats.map((c) => (c.id === chatId ? { ...c, unread: 0, mentions: 0 } : c)) : s.chats;
   if (s.open?.chatId === chatId && s.open.messages.length) {
-    return [{ ...s, chats, view: "chat", mode: "normal", listSel: chatId, open: { ...s.open, newBelow: 0 } }, markRead ? [{ type: "markRead", chatId }] : []];
+    return [{ ...s, chats, filter: "", view: "chat", mode: "normal", listSel: chatId, open: { ...s.open, newBelow: 0 } }, markRead ? [{ type: "markRead", chatId }] : []];
   }
   // preloaded? paint it now; the fetch below only refreshes
   const cached = s.history[draftKey(s, chatId)] ?? [];
@@ -75,6 +74,7 @@ export function openChat(s: State, chatId: string): Result {
     {
       ...s,
       chats,
+      filter: "", // a search got you here; going back shows the whole list
       view: "chat",
       mode: "normal",
       listSel: chatId,
@@ -82,6 +82,11 @@ export function openChat(s: State, chatId: string): Result {
     },
     [{ type: "openChat", chatId, markRead }],
   ];
+}
+
+// the view scrolls and then picks the row under the cursor (vim ctrl-d / ctrl-u)
+function halfPage(s: State, dir: 1 | -1): Result {
+  return [{ ...s, scrollReq: { seq: (s.scrollReq?.seq ?? 0) + 1, dir } }, []];
 }
 
 function moveList(s: State, delta: number | "top" | "bottom"): Result {
@@ -154,7 +159,56 @@ function quit(s: State): Result {
 export function switchTo(s: State, name: string): Result {
   if (name === s.account) return [{ ...s, palette: undefined }, []];
   if (Object.keys(s.outbox).length) return [{ ...s, palette: undefined, toast: { text: "wait for the message to finish sending before switching accounts", error: true } }, []];
-  return [{ ...s, palette: undefined }, [{ type: "switchAccount", name }]];
+  // keep this account warm for switching back
+  const accountCache = { ...s.accountCache, [s.account]: { label: s.accountLabel, chats: s.chats } };
+  const warm = s.accountCache[name];
+  if (!warm) return [{ ...s, palette: undefined, accountCache }, [{ type: "switchAccount", name }]];
+  // warmed: show it now. telegram calls made before the switch lands wait for it, so nothing goes out as the old account
+  return [
+    {
+      ...s,
+      palette: undefined,
+      accountCache,
+      account: name,
+      accountLabel: warm.label,
+      chats: warm.chats,
+      chatsLoaded: true,
+      listSel: warm.chats[0]?.id,
+      open: undefined,
+      results: undefined,
+      view: "list",
+      mode: "normal",
+      filter: "",
+    },
+    [{ type: "switchAccount", name }],
+  ];
+}
+
+function viewImage(s: State, chatId: string, msgId: number): Result {
+  return [{ ...s, viewer: { chatId, msgId } }, [{ type: "viewImage", chatId, msgId }]];
+}
+
+// j/k in the viewer step through the chat's media
+function stepImage(s: State, dir: 1 | -1): Result {
+  const v = s.viewer!;
+  const msgs = s.open?.chatId === v.chatId ? s.open.messages : [];
+  const i = msgs.findIndex((m) => m.id === v.msgId);
+  for (let j = i + dir; j >= 0 && j < msgs.length; j += dir) {
+    if (msgs[j]!.media) {
+      const [s2, fx] = viewImage(s, v.chatId, msgs[j]!.id);
+      return [{ ...s2, open: s2.open && { ...s2.open, sel: msgs[j]!.id } }, fx];
+    }
+  }
+  return toast(s, dir > 0 ? "no newer media in this chat" : "no older media loaded");
+}
+
+function viewerKey(s: State, t: string): Result {
+  const v = s.viewer!;
+  if (t === "escape" || t === "q" || t === "v" || t === "h") return [{ ...s, viewer: undefined }, []];
+  if (t === "o") return [{ ...s, toast: { text: "opening…", error: false } }, [{ type: "openMedia", chatId: v.chatId, msgId: v.msgId }]];
+  if (t === "j" || t === "right" || t === "l") return stepImage(s, 1);
+  if (t === "k" || t === "left") return stepImage(s, -1);
+  return [s, []];
 }
 
 function pasteImage(s: State): Result {
@@ -166,8 +220,8 @@ export const COMMANDS: Command[] = [
   // navigation (help only)
   { id: "down", title: "down", keys: ["j", "down"], views: ALL, hidden: true, run: (s) => move(s, 1) },
   { id: "up", title: "up", keys: ["k", "up"], views: ALL, hidden: true, run: (s) => move(s, -1) },
-  { id: "half-down", title: "half page down", keys: ["ctrl-d", "pagedown"], views: ALL, hidden: true, run: (s) => move(s, HALF_PAGE) },
-  { id: "half-up", title: "half page up", keys: ["ctrl-u", "pageup"], views: ALL, hidden: true, run: (s) => move(s, -HALF_PAGE) },
+  { id: "half-down", title: "scroll half a page down", keys: ["ctrl-d", "pagedown"], views: ALL, hidden: true, run: (s) => halfPage(s, 1) },
+  { id: "half-up", title: "scroll half a page up", keys: ["ctrl-u", "pageup"], views: ALL, hidden: true, run: (s) => halfPage(s, -1) },
   { id: "top", title: "top (loads older)", keys: ["gg", "home"], views: ALL, hidden: true, run: (s) => move(s, "top") },
   { id: "bottom", title: "bottom / newest", keys: ["G", "end"], views: ALL, hidden: true, run: (s) => move(s, "bottom") },
   {
@@ -239,6 +293,29 @@ export const COMMANDS: Command[] = [
       const m = selectedMsg(s);
       if (!m?.media || !s.open) return toast(s, "the selected message has no attachment", true);
       return [{ ...s, toast: { text: `downloading ${m.media}…`, error: false } }, [{ type: "openMedia", chatId: s.open.chatId, msgId: m.id }]];
+    },
+  },
+  {
+    id: "open-link",
+    title: "open link in the selected message",
+    keys: ["gx"],
+    views: ["chat"],
+    run: (s) => {
+      const urls = selectedMsg(s)?.urls ?? [];
+      if (!urls.length) return toast(s, "no link in the selected message", true);
+      if (urls.length === 1) return [{ ...s, toast: { text: `opening ${urls[0]}`, error: false } }, [{ type: "openUrl", url: urls[0]! }]];
+      return palette("links")(s);
+    },
+  },
+  {
+    id: "view-image",
+    title: "view image here (inline)",
+    keys: ["v"],
+    views: ["chat"],
+    run: (s) => {
+      const m = selectedMsg(s);
+      if (!m?.media || !s.open) return toast(s, "the selected message has no image", true);
+      return viewImage(s, s.open.chatId, m.id);
     },
   },
   {
@@ -338,6 +415,7 @@ export function handleKey(s: State, k: Key): Result {
   }
 
   if (s0.help) return t === "escape" || t === "?" || t === "q" ? [{ ...s0, help: false }, []] : [s0, []];
+  if (s0.viewer) return viewerKey(s0, t);
   if (s0.palette) return paletteKey(s0, k, t);
 
   if (s0.mode === "insert") return insertKey(s0, k, t);
@@ -466,6 +544,12 @@ export function paletteEntries(s: State): PaletteEntry[] {
       }));
   }
   if (p.kind === "chats") return chatEntries(s, q);
+  if (p.kind === "links") {
+    const urls = s.open?.messages.find((m) => m.id === s.open?.sel)?.urls ?? [];
+    return urls
+      .filter((u) => fuzzy(q, u) > 0)
+      .map((u) => ({ label: u, hint: "enter", run: (s2: State): Result => [{ ...s2, palette: undefined, toast: { text: `opening ${u}`, error: false } }, [{ type: "openUrl", url: u }]] }));
+  }
   if (p.kind === "search" || p.kind === "search-chat") {
     if (!q.trim()) return [];
     const scope = p.kind === "search-chat" ? s.open?.chatId : undefined;

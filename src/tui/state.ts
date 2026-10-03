@@ -2,7 +2,7 @@ import type { ChatSummary, Msg, SearchHit, SourceEvent } from "./types";
 
 export type View = "list" | "chat" | "results";
 export type Mode = "normal" | "insert" | "filter";
-export type PaletteKind = "all" | "chats" | "accounts" | "search" | "search-chat" | "file";
+export type PaletteKind = "all" | "chats" | "accounts" | "search" | "search-chat" | "file" | "links";
 
 export interface Draft {
   text: string;
@@ -39,6 +39,10 @@ export interface State {
   palette?: { kind: PaletteKind; query: string; index: number };
   help: boolean;
   pending: string; // first key of a sequence: "g" or "Z"
+  scrollReq?: { seq: number; dir: 1 | -1 }; // half-page scroll, carried out by the visible view
+  viewer?: { chatId: string; msgId: number; path?: string; error?: string }; // inline image view
+  accountCache: Record<string, { label: string; chats: ChatSummary[] }>; // other accounts, warmed in the background
+  warmed: boolean;
   toast?: { text: string; error: boolean };
   online: boolean;
   quitArmed: boolean;
@@ -48,6 +52,7 @@ export interface State {
 export type Effect =
   | { type: "loadChats" }
   | { type: "prefetch"; chatIds: string[] }
+  | { type: "warmAccounts"; accounts: string[] }
   | { type: "openChat"; chatId: string; markRead: boolean }
   | { type: "loadOlder"; chatId: string; before: number }
   | { type: "jumpTo"; chatId: string; msgId: number }
@@ -57,6 +62,8 @@ export type Effect =
   | { type: "switchAccount"; name: string }
   | { type: "search"; query: string; chatId?: string }
   | { type: "openMedia"; chatId: string; msgId: number }
+  | { type: "viewImage"; chatId: string; msgId: number }
+  | { type: "openUrl"; url: string }
   | { type: "copy"; text: string; what: string }
   | { type: "pasteImage"; key: string; chatId: string }
   | { type: "attachPath"; path: string; key: string; chatId: string }
@@ -75,6 +82,8 @@ export function initialState(account: string, accounts: string[], drafts: Record
     filter: "",
     drafts,
     history: {},
+    accountCache: {},
+    warmed: false,
     outbox: {},
     help: false,
     pending: "",
@@ -110,6 +119,7 @@ export type Action =
   | { type: "chatsLoaded"; chats: ChatSummary[] }
   | { type: "historyLoaded"; chatId: string; msgs: Msg[]; mode: "replace" | "prepend"; select?: number; latest: boolean; limit: number }
   | { type: "prefetched"; key: string; msgs: Msg[] }
+  | { type: "accountWarmed"; account: string; label: string; chats: ChatSummary[]; history: Record<string, Msg[]> }
   | { type: "historyFailed"; chatId: string; error: string }
   | { type: "sent"; key: string; chatId: string; msg: Msg }
   | { type: "sendFailed"; key: string; error: string; unsent: Draft }
@@ -118,6 +128,8 @@ export type Action =
   | { type: "insertText"; text: string }
   | { type: "accountSwitched"; account: string; label: string }
   | { type: "toast"; text: string; error?: boolean }
+  | { type: "pick"; id: string } // the view picked the row under the cursor after scrolling
+  | { type: "viewerReady"; chatId: string; msgId: number; path?: string; error?: string }
   | { type: "event"; event: SourceEvent };
 
 export const PREFETCH_TOP = 10;
@@ -161,9 +173,19 @@ export function apply(s: State, a: Action): [State, Effect[]] {
   switch (a.type) {
     case "chatsLoaded": {
       const listSel = s.listSel && a.chats.some((c) => c.id === s.listSel) ? s.listSel : a.chats[0]?.id;
-      const next = { ...s, chats: a.chats, chatsLoaded: true, listSel };
+      const next = { ...s, chats: a.chats, chatsLoaded: true, listSel, warmed: true };
       const warm = uncached(next, a.chats.slice(0, PREFETCH_TOP).map((c) => c.id));
-      return [next, warm.length ? [{ type: "prefetch", chatIds: warm }] : []];
+      const others = s.warmed ? [] : s.accounts.filter((x) => x !== s.account);
+      return [
+        next,
+        [...(warm.length ? [{ type: "prefetch" as const, chatIds: warm }] : []), ...(others.length ? [{ type: "warmAccounts" as const, accounts: others }] : [])],
+      ];
+    }
+    case "accountWarmed": {
+      if (a.account === s.account) return [s, []];
+      const history = { ...s.history };
+      for (const [chatId, msgs] of Object.entries(a.history)) history[`${a.account}:${chatId}`] = msgs;
+      return [{ ...s, history, accountCache: { ...s.accountCache, [a.account]: { label: a.label, chats: a.chats } } }, []];
     }
     case "prefetched": {
       if (!a.key.startsWith(`${s.account}:`)) return [s, []];
@@ -261,13 +283,36 @@ export function apply(s: State, a: Action): [State, Effect[]] {
       const text = d.text.slice(0, d.cursor) + a.text + d.text.slice(d.cursor);
       return [{ ...s, drafts: { ...s.drafts, [key]: { ...d, text, cursor: d.cursor + a.text.length } } }, [{ type: "saveDrafts" }]];
     }
-    case "accountSwitched":
+    case "accountSwitched": {
+      // the warmed view (if any) is already on screen; this only confirms and refreshes it
+      if (s.account === a.account) return [{ ...s, accountLabel: a.label }, [{ type: "loadChats" }]];
       return [
-        { ...s, account: a.account, accountLabel: a.label, history: {}, chats: [], chatsLoaded: false, open: undefined, results: undefined, view: "list", mode: "normal", listSel: undefined, filter: "" },
+        { ...s, account: a.account, accountLabel: a.label, chats: [], chatsLoaded: false, open: undefined, results: undefined, view: "list", mode: "normal", listSel: undefined, filter: "" },
         [{ type: "loadChats" }],
       ];
+    }
     case "toast":
       return [{ ...s, toast: { text: a.text, error: Boolean(a.error) } }, []];
+    case "viewerReady":
+      // only if the user is still looking at that image
+      if (!s.viewer || s.viewer.chatId !== a.chatId || s.viewer.msgId !== a.msgId) return [s, []];
+      return [{ ...s, viewer: { ...s.viewer, path: a.path, error: a.error } }, []];
+    case "pick": {
+      if (s.view === "list") {
+        const next = { ...s, listSel: a.id };
+        const i = s.chats.findIndex((c) => c.id === a.id);
+        const around = uncached(next, [s.chats[i]?.id, s.chats[i + 1]?.id, s.chats[i - 1]?.id]);
+        return [next, around.length ? [{ type: "prefetch", chatIds: around }] : []];
+      }
+      if (s.view === "results" && s.results) return [{ ...s, results: { ...s.results, sel: Number(a.id) } }, []];
+      if (s.view === "chat" && s.open) {
+        const o = s.open;
+        const id = Number(a.id);
+        const first = o.messages[0]?.id === id && !o.atStart && !o.loading;
+        return [{ ...s, open: { ...o, sel: id, loading: o.loading || first } }, first ? [{ type: "loadOlder", chatId: o.chatId, before: id }] : []];
+      }
+      return [s, []];
+    }
     case "event":
       return applyEvent(s, a.event);
   }
