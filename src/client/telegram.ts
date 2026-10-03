@@ -42,6 +42,14 @@ export function setKeepAlive(on: boolean) {
   keepAlive = on;
 }
 
+export function sessionOverride(): { path: string | undefined; account: string | undefined } {
+  return { path: customSessionPath, account: pinnedAccount };
+}
+
+export function isKeepAlive(): boolean {
+  return keepAlive;
+}
+
 // the account name this invocation runs as, for messages and hints
 export function activeAccount(): string {
   return pinnedAccount ?? getCurrentAccount() ?? "default";

@@ -29,26 +29,47 @@ that's it! now you're ready to use telegram from the cli.
 
 ## usage
 
-### interactive shell
+### full-screen app
 
 run `telegram` (or `bunx supertelegram`) with no arguments in a terminal:
 
 ```
-$ telegram
-supertelegram v0.8.0 — type a command without "telegram" (list, read, send, ...). tab completes, ↑ for history, "help", ctrl-d to quit.
-telegram:default> read Cov⇥          → read Covers!
-telegram:default> read Covers! -n 5
-telegram:default> send me "note"
+ supertelegram 7 unread chats · 214 loaded                              default   ? help
+▌● Covers!                    3 mnk: 8qcK… address                             14:02
+ ● Kate                       1 look at this                                   13:47
+ ⌃ Saved Messages               you: note to self                              12:10
+ NORMAL  j/k move · enter open · / filter · gu next unread · gs search · ctrl-k commands
 ```
 
-- the same commands and flags as the cli, without the `telegram` prefix (a pasted `telegram ...` works too)
-- **tab** completes commands, flags, account names after `-a`, chat titles/@usernames/ids (from the account on that line), and file paths for `send-file` / `download`
-- **↑/↓** history, kept in `~/.supertelegram/repl_history` (0600)
-- connections stay open between commands, so repeated commands skip the connect
-- quoting is `'...'`, `"..."` and `\` escapes; `!`, `$` and `*` are plain characters (no shell history expansion)
-- `login` runs as its own process so its prompts work. `exit`, `quit` or ctrl-d to leave
+two views: the **chat list** (unread counts, muted, drafts ✎, last message) and the **chat**,
+drawn like an AI chat transcript — `⏺ name` for others, `> ` for you, replies quoted,
+`▣ photo` for media, day separators — with a `>` prompt at the bottom. new messages
+arrive live.
 
-piped or scripted (`telegram < /dev/null`, or from an agent), no arguments still just prints help.
+it's modal like vim, so letters never land in a message by accident:
+
+| | keys |
+|---|---|
+| move / scroll | `j` `k` · `ctrl-d` `ctrl-u` · `gg` (loads older) `G` |
+| open / back | `enter` · `h` / `esc` |
+| write | `i` (or `enter` in a chat) · `enter` sends · `alt-enter` newline · `esc` keeps the draft |
+| reply / media / copy | `r` on a selected message · `o` open attachment · `y` copy text |
+| image | `ctrl-v` pastes the clipboard image (or drag a file in) as an attachment chip |
+| go to | `gc` chat… · `gs` search everywhere · `gu` next unread · `gi` chat list · `gm` saved messages · `ga` account |
+| everything | `ctrl-k` or `:` — command palette with every feature and its shortcut · `?` help |
+| quit | `ctrl-c ctrl-c` or `:q` — drafts are kept per chat (`~/.supertelegram/drafts.json`) |
+
+- opening a chat marks it read; moving through the list never does
+- a draft belongs to its chat: switching chats, incoming messages or reordering can't send it elsewhere
+- a failed send puts the text back in the prompt and is never retried
+- `alt-1..9` opens pinned chats (needs "option as meta" in your terminal)
+- ⌘ shortcuts don't reach terminal apps; to use ⌘k, map it to ctrl-k in your terminal
+  (ghostty: `keybind = super+k=text:\x0b`; iterm2: send hex code `0x0b`)
+
+### interactive shell
+
+the line-based shell lives on as `telegram shell`: the same commands without the `telegram`
+prefix, tab completion for commands/flags/accounts/chats/paths, persistent history.
 
 ### find a chat
 

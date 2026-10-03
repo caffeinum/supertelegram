@@ -1,6 +1,6 @@
 {
   "name": "supertelegram",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "telegram cli for humans and bots",
   "module": "index.ts",
   "type": "module",
@@ -22,13 +22,17 @@
     "cli:interactive": "bun run src/cli/index.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/react": "^19.3.0"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "@opentui/core": "0.5.12",
+    "@opentui/react": "0.5.12",
     "input": "^1.0.1",
+    "react": "19.3.0",
     "telegram": "^2.26.22"
   }
 }

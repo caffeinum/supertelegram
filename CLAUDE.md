@@ -3,7 +3,10 @@
 telegram cli (gramjs) for humans and agents. owned by the `supertelegram` paw agent — see the `supertelegram-ownership` skill.
 
 ## layout
-- `src/cli/run.ts` — entry: no args on a tty → repl, else `execute(argv)` then exit.
+- `src/cli/run.ts` — entry: no args on a tty → `tui`, else `execute(argv)` then exit.
+- `src/tui/` — full-screen app (opentui 0.5.12 + react, pinned exact; lazy-imported so one-shot commands stay fast):
+  `state.ts` pure state + action reducer · `keys.ts` command registry (keymap, palette entries and help are all generated from it) ·
+  `views.tsx` rendering · `app.tsx` effects (telegram, clipboard, open, draft saves) · `gram-source.ts` real telegram · `fake-source.ts` for tests.
 - `src/cli/cli.ts` — command specs (flags, help, examples) + dispatch; `execute(argv)` returns an exit code and never exits.
 - `src/cli/repl.ts` — interactive shell: tokenizer, tab completion, history. keep-alive clients, so `disconnect()` is a no-op there.
 - `src/cli/args.ts` — strict parser: unknown flags error with did-you-mean; `-123` is a positional (chat ids), `--` ends flags.
@@ -15,6 +18,11 @@ telegram cli (gramjs) for humans and agents. owned by the `supertelegram` paw ag
 
 ## eval (the success metric)
 `bun evals/replay.ts` replays real transcripts in `evals/transcripts/`: every case must work or fail with an error naming the fix. needs live logged-in accounts (`default`, `caffeinum`). negative control: `ST_CMD="bunx supertelegram@0.6.1" bun evals/replay.ts` must show walls.
+
+## tests
+`bun test tests/` — headless tui tests (opentui testRender + FakeSource): frames, key flows, drafts, paste, shortcut↔palette parity. ci runs them before publishing.
+in tests, react commits outside act(): sleep a tick after keys and poll frames in real time (`until`), never assert on the frame right after a key.
+a lone esc arrives ~25ms late; esc immediately followed by a key arrives as alt+key (handled as esc-then-key in typing modes).
 
 ## release
 bump `version` in package.json, push main. `.github/workflows/publish.yml` publishes via npm OIDC (no token) and tags `vX.Y.Z`.
@@ -29,3 +37,5 @@ drive it through a real tty with `expect`. send keystrokes separately with a pau
 - gramjs's update loop rejects with TIMEOUT during disconnect — `isTearingDown()` keeps that from flipping the exit code.
 - every command must `disconnect()` on every path or the process hangs.
 - never test-send to real people: use `me`.
+- in saved messages telegram sets `out=false` on your own messages; compare the sender with your id.
+- expect harnesses must not hardcode the active account in prompts (aleks switches it).

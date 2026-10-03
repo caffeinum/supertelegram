@@ -46,6 +46,11 @@ jobs:
         if: steps.check.outputs.publish == 'true'
         run: bun install --frozen-lockfile
 
+      # the tui tests run headless against a fake telegram; a failing ui never publishes
+      - name: test
+        if: steps.check.outputs.publish == 'true'
+        run: bun test tests/
+
       - uses: actions/setup-node@v4
         if: steps.check.outputs.publish == 'true'
         with:

@@ -160,6 +160,26 @@ export const COMMANDS: Command[] = [
     run: (p) => unread(limitFrom(p, p.positionals[0], 20, "unread")),
   },
   {
+    name: "tui",
+    args: "",
+    summary: "full-screen telegram: chat list, chats, vim keys, command palette (also: telegram with no args)",
+    examples: ["tui", "tui -a work"],
+    async run() {
+      const { runTui } = await import("../tui/index");
+      await runTui();
+    },
+  },
+  {
+    name: "shell",
+    args: "",
+    summary: "line-based shell: type commands with tab completion and history",
+    examples: ["shell"],
+    async run() {
+      const { repl } = await import("./repl");
+      await repl();
+    },
+  },
+  {
     name: "login",
     args: "[name]",
     summary: "authenticate with telegram (into a named account)",
@@ -217,7 +237,7 @@ const HELP = [
   "",
   `chats are addressed by @username, numeric id (from '${NAME} list'), or title.`,
   `details for any command: ${NAME} <command> --help`,
-  `interactive shell with tab completion: run ${NAME} with no arguments in a terminal`,
+  `full-screen ui: run ${NAME} with no arguments in a terminal (or ${NAME} tui). line shell: ${NAME} shell`,
   "",
   "examples:",
   `  ${NAME} list covers              # find a chat, get its id`,
