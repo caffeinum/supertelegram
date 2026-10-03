@@ -6,8 +6,8 @@ import { copyText, pastedPath, readClipboardImage } from "./clipboard";
 import { saveDrafts } from "./drafts";
 import { handleKey, type Key } from "./keys";
 import { apply, type Action, type Effect, type State } from "./state";
-import type { DataSource } from "./types";
-import { ChatList, ChatView, Header, Help, Palette, Prompt, Results, StatusBar, Viewer } from "./views";
+import type { ChatPool, DataSource } from "./types";
+import { ChatList, ChatView, FolderTabs, Header, Help, Palette, Prompt, Results, StatusBar, Viewer } from "./views";
 
 const HISTORY_PAGE = 60;
 const PREFETCH_CONCURRENCY = 2;
@@ -19,17 +19,19 @@ export interface AppProps {
   source: DataSource;
   initial: State;
   onQuit: () => void;
+  persistPool?: (account: string, pool: ChatPool) => void;
   persistDrafts?: (drafts: State["drafts"]) => void;
   openFile?: (path: string) => Promise<void>;
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openFile }: AppProps) {
+export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persistPool = () => {}, openFile }: AppProps) {
   const [state, setState] = useState(initial);
   const ref = useRef(initial);
   const { width: cols, height: rows } = useTerminalDimensions();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const cacheTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // prefetch queue: newest request first (the chat under the cursor), a couple at a time, never twice
   const prefetch = useRef({ queue: [] as { account: string; chatId: string }[], busy: 0, seen: new Set<string>() });
 
@@ -78,7 +80,7 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
           return pump();
         }
         case "loadChats":
-          return source.listChats(CHATS).then((chats) => act({ type: "chatsLoaded", chats }), fail("couldn't load chats"));
+          return source.listChats(CHATS).then((pool) => act({ type: "chatsLoaded", chats: pool.chats, folders: pool.folders }), fail("couldn't load chats"));
         case "openChat":
           if (e.markRead) source.markRead(e.chatId).catch(fail("couldn't mark read"));
           return source
@@ -123,11 +125,18 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
           return source.markRead(e.chatId).catch(fail("couldn't mark read"));
         case "markUnread":
           return source.markUnread(e.chatId).catch(fail("couldn't mark unread"));
+        case "loadExtras": {
+          const account = ref.current.account;
+          return source
+            .folderExtras(ref.current.folders, ref.current.chats.map((c) => c.id))
+            .then((chats) => act({ type: "chatsExtended", account, chats }))
+            .catch(fail("couldn't load folder chats"));
+        }
         case "warmAccounts":
           for (const account of e.accounts) {
             source
               .peek(account, 5)
-              .then((w) => act({ type: "accountWarmed", account, ...w }))
+              .then((w) => act({ type: "accountWarmed", account, label: w.label, chats: w.pool.chats, folders: w.pool.folders, history: w.history }))
               .catch(() => undefined); // an account that can't be warmed just switches the slow way
           }
           return;
@@ -160,6 +169,17 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
           if (!existsSync(path) || !statSync(path).isFile()) return act({ type: "toast", text: `no file at ${path}`, error: true });
           return act({ type: "attach", path, key: e.key, chatId: e.chatId });
         }
+        case "saveCache":
+          clearTimeout(cacheTimer.current);
+          cacheTimer.current = setTimeout(() => {
+            const st = ref.current;
+            try {
+              persistPool(st.account, { chats: st.chats, folders: st.folders });
+            } catch (err) {
+              act({ type: "toast", text: `couldn't save the chat cache: ${message(err)}`, error: true });
+            }
+          }, 1500);
+          return;
         case "saveDrafts":
           clearTimeout(saveTimer.current);
           saveTimer.current = setTimeout(() => persistDrafts(ref.current.drafts), 300);
@@ -187,6 +207,10 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
 
   useEffect(() => {
     const off = source.subscribe((event) => act({ type: "event", event }));
+    source.ready?.catch((err) => {
+      act({ type: "event", event: { type: "online", online: false } });
+      act({ type: "toast", text: `can't connect: ${message(err)}`, error: true });
+    });
     void exec({ type: "loadChats" });
     return off;
   }, [source, act, exec]);
@@ -217,7 +241,10 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
     ) : state.view === "results" && state.results ? (
       <Results s={state} cols={cols} rows={rows} onPick={pick} />
     ) : (
-      <ChatList s={state} cols={cols} rows={rows} onPick={pick} />
+      <>
+        <FolderTabs s={state} cols={cols} />
+        <ChatList s={state} cols={cols} rows={rows} onPick={pick} />
+      </>
     );
 
   return (

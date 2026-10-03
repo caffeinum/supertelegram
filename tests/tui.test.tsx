@@ -436,6 +436,86 @@ describe("links, images, filter, accounts", () => {
   });
 });
 
+describe("folders", () => {
+  test("membership follows telegram's rules", async () => {
+    const { inFolder, ALL_CHATS } = await import("../src/tui/folders");
+    const [covers, kate, saved, noisy] = chats();
+    const unreadOnly = { id: 2, title: "Unread", include: [], exclude: [], pinned: [], contacts: true, nonContacts: true, groups: true, broadcasts: true, bots: true, excludeRead: true };
+    expect(inFolder(covers!, unreadOnly)).toBe(true); // 3 unread
+    expect(inFolder(saved!, unreadOnly)).toBe(false); // read
+    const work = { id: 1, title: "Work", include: ["42"], exclude: ["-100"], pinned: ["7"], groups: true };
+    expect(inFolder(covers!, work)).toBe(false); // excluded beats the groups flag
+    expect(inFolder(kate!, work)).toBe(true); // included
+    expect(inFolder(saved!, work)).toBe(true); // pinned
+    expect(inFolder(noisy!, work)).toBe(true); // a group
+    expect(inFolder(noisy!, { ...work, excludeMuted: true })).toBe(false); // muted dropped
+    expect(inFolder({ ...kate!, archived: true }, ALL_CHATS)).toBe(false); // archived isn't in All chats
+  });
+
+  async function withFolders() {
+    const s = await setup();
+    s.src.folders = [
+      { id: 1, title: "Work", include: ["42", "-100"], exclude: [], pinned: ["42"] },
+      { id: 0, title: "All chats", all: true, include: [], exclude: [], pinned: [] },
+      { id: 2, title: "Unread", include: [], exclude: [], pinned: [], groups: true, contacts: true, nonContacts: true, broadcasts: true, bots: true, excludeRead: true },
+    ];
+    await s.keys("ctrl-r");
+    await s.until((x) => x.includes(" Work "));
+    return s;
+  }
+
+  test("opens on the default folder (first in telegram order) with tabs and unread badges", async () => {
+    const s = await withFolders();
+    const f = s.frame();
+    expect(f).toMatch(/ Work 2 .* All chats 2 .* Unread 2 /); // muted Noisy Group isn't counted
+    const list = f.split("\n").filter((l) => /^[▌ ][●◌✎⌃ ] /.test(l));
+    expect(list[0]).toContain("Kate"); // the folder's pinned chat first
+    expect(f).not.toContain("Saved Messages"); // not in Work
+  });
+
+  test("tab and shift-tab cycle folders; gf picks one", async () => {
+    const s = await withFolders();
+    await s.keys("\t");
+    await s.until((x) => x.includes("Saved Messages")); // All chats
+    await s.keys("\t");
+    await s.until((x) => !x.includes("Saved Messages") && x.includes("Covers!")); // Unread
+    await s.t.mockInput.pressKey("TAB", { shift: true });
+    await s.until((x) => x.includes("Saved Messages"));
+    await s.keys("gf", "work", "enter");
+    await s.until((x) => !x.includes("Saved Messages") && x.includes("Kate"));
+  });
+
+  test("chats only a folder names (older than the recent list) fill in from the background", async () => {
+    const s = await setup();
+    s.src.extras = [{ id: "888", title: "Old Friend", kind: "user", unread: 0, mentions: 0, muted: false, pinned: false, last: { text: "from 2023", out: false, date: now - 86400 * 900 } }];
+    s.src.folders = [
+      { id: 1, title: "Work", include: ["42", "888"], exclude: [], pinned: [] },
+      { id: 0, title: "All chats", all: true, include: [], exclude: [], pinned: [] },
+    ];
+    await s.keys("ctrl-r");
+    await s.until((x) => x.includes(" Work ") && x.includes("Old Friend"));
+    expect(s.src.calls.some((c) => c.method === "folderExtras")).toBe(true);
+  });
+
+  test("the chat cache round-trips owner-only and refuses a corrupt file", async () => {
+    const { loadPool, savePool } = await import("../src/tui/cache");
+    const { statSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "st-cache-"));
+    savePool("caffeinum", { chats: chats(), folders: [] }, dir);
+    expect(loadPool("caffeinum", dir)?.chats.map((c) => c.title)).toEqual(chats().map((c) => c.title));
+    expect(statSync(join(dir, "caffeinum.json")).mode & 0o777).toBe(0o600);
+    writeFileSync(join(dir, "bad.json"), JSON.stringify({ nope: 1 }));
+    expect(() => loadPool("bad", dir)).toThrow(/corrupt chat cache/);
+    expect(loadPool("missing", dir)).toBeUndefined();
+  });
+
+  test("/ searches every chat, not just the folder", async () => {
+    const s = await withFolders();
+    await s.keys("/", "saved");
+    await s.until((x) => x.includes("Saved Messages"));
+  });
+});
+
 describe("review regressions", () => {
   test("search picked from insert mode: typing in results never reaches the prompt or sends", async () => {
     const { keys, until, src } = await setup();

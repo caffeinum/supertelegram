@@ -164,9 +164,9 @@ export const COMMANDS: Command[] = [
     args: "",
     summary: "full-screen telegram: chat list, chats, vim keys, command palette (also: telegram with no args)",
     examples: ["tui", "tui -a work"],
-    async run() {
+    async run(p) {
       const { runTui } = await import("../tui/index");
-      await runTui();
+      await runTui(undefined, typeof p.flags.account === "string" ? p.flags.account : undefined);
     },
   },
   {

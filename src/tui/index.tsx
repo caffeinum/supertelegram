@@ -3,9 +3,18 @@ import { createRoot } from "@opentui/react";
 import { Component, type ReactNode } from "react";
 import { App } from "./app";
 import { loadDrafts } from "./drafts";
-import { GramSource } from "./gram-source";
-import { initialState } from "./state";
+import { loadPool, savePool } from "./cache";
+import { LazySource } from "./lazy-source";
+import { getCurrentAccount, listAccounts, migrateLegacyIfNeeded } from "../config/accounts";
+import { initialState, visibleChats } from "./state";
 import type { DataSource } from "./types";
+
+function lazySource(account: string | undefined): DataSource {
+  migrateLegacyIfNeeded();
+  const name = account ?? getCurrentAccount() ?? "default";
+  const meta = listAccounts().find((a) => a.name === name)?.meta;
+  return new LazySource(name, meta?.username ? `@${meta.username}` : (meta?.name ?? ""), listAccounts().map((a) => a.name));
+}
 
 // a render error ends the session with the error instead of leaving a dead screen behind
 class Crash extends Component<{ onCrash: (e: unknown) => void; children: ReactNode }, { failed: boolean }> {
@@ -21,10 +30,19 @@ class Crash extends Component<{ onCrash: (e: unknown) => void; children: ReactNo
   }
 }
 
-export async function runTui(source?: DataSource): Promise<void> {
-  // everything that can fail before drawing happens before taking over the screen
-  const src = source ?? (await GramSource.open());
+// account: an explicit -a, else the active one. nothing here loads gramjs before the first frame
+export async function runTui(source?: DataSource, account?: string): Promise<void> {
+  const src = source ?? lazySource(account);
+  const cached = loadPool(src.account());
+  // no cached list: connect first, so a logged-out account fails with the cli's normal error before taking the screen.
+  // with one: draw it now and let the connection land behind it
+  if (!cached) await src.ready;
   const initial = initialState(src.account(), src.accounts(), loadDrafts(), src.accountLabel());
+  // last session's chat list: the first frame is complete; the live list replaces it a moment later
+  if (cached) {
+    Object.assign(initial, { chats: cached.chats, folders: cached.folders, chatsLoaded: true });
+    initial.listSel = visibleChats(initial)[0]?.id;
+  }
   const renderer = await createCliRenderer({ exitOnCtrlC: false });
   let crashed: unknown;
   try {
@@ -36,7 +54,7 @@ export async function runTui(source?: DataSource): Promise<void> {
             resolve();
           }}
         >
-          <App source={src} initial={initial} onQuit={resolve} />
+          <App source={src} initial={initial} onQuit={resolve} persistPool={savePool} />
         </Crash>
       );
     });

@@ -8,6 +8,9 @@ import { getApiCredentials, getSessionPath } from "../config/manager";
 import { getCurrentAccount } from "../config/accounts";
 import { wssEnabled, wssClientParams, applyWss, restoreTcpDc, explainConnectionError } from "./wss";
 import { CliError, EXIT } from "../cli/errors";
+import { isKeepAlive, isTearingDown, markTearingDown, setKeepAlive } from "./lifecycle";
+
+export { isKeepAlive, isTearingDown, setKeepAlive };
 
 let verbose = false;
 
@@ -29,38 +32,21 @@ export type Entity = Api.User | Api.Chat | Api.Channel;
 const clients = new Map<string, TelegramClient>();
 let customSessionPath: string | undefined;
 let pinnedAccount: string | undefined;
-let tearingDown = false;
-let keepAlive = false;
 
 export function setSessionPath(path: string | undefined, accountName?: string) {
   customSessionPath = path;
   pinnedAccount = accountName;
 }
 
-// in keep-alive mode disconnect() is a no-op; shutdown() closes everything
-export function setKeepAlive(on: boolean) {
-  keepAlive = on;
-}
 
 export function sessionOverride(): { path: string | undefined; account: string | undefined } {
   return { path: customSessionPath, account: pinnedAccount };
 }
 
-export function isKeepAlive(): boolean {
-  return keepAlive;
-}
 
 // the account name this invocation runs as, for messages and hints
 export function activeAccount(): string {
   return pinnedAccount ?? getCurrentAccount() ?? "default";
-}
-
-// true once disconnect() has begun. gramjs's background update loop can reject
-// with a TIMEOUT while the connection is torn down — that happens AFTER the
-// command's real work has committed, so callers use this to tell benign
-// teardown noise apart from a genuine failure.
-export function isTearingDown(): boolean {
-  return tearingDown;
 }
 
 export async function createClient(sessionPath?: string): Promise<TelegramClient> {
@@ -282,11 +268,12 @@ export async function resetClients(): Promise<void> {
 }
 
 export async function shutdown(): Promise<void> {
-  tearingDown = true;
+  markTearingDown();
   await closeClients();
 }
 
+// in keep-alive mode disconnect() is a no-op; shutdown() closes everything
 export async function disconnect(): Promise<void> {
-  if (keepAlive) return;
+  if (isKeepAlive()) return;
   await shutdown();
 }

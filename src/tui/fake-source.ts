@@ -1,4 +1,5 @@
-import type { ChatSummary, DataSource, Msg, SearchHit, SendOpts, SourceEvent } from "./types";
+import type { ChatSummary, DataSource, Folder, Msg, SearchHit, SendOpts, SourceEvent } from "./types";
+import { ALL_CHATS } from "./folders";
 
 // in-memory telegram for tests: records every call so tests can assert on what was sent/read
 export class FakeSource implements DataSource {
@@ -9,6 +10,8 @@ export class FakeSource implements DataSource {
   imagePath: string | undefined;
   private listeners = new Set<(e: SourceEvent) => void>();
   private nextId = 1000;
+
+  folders: Folder[] = [ALL_CHATS];
 
   constructor(
     public chats: ChatSummary[],
@@ -37,12 +40,17 @@ export class FakeSource implements DataSource {
     const chats = [{ id: "555", title: `${account} team`, kind: "group" as const, unread: 2, mentions: 0, muted: false, pinned: false, last: { text: `hello from ${account}`, out: false, date: Math.floor(Date.now() / 1000) } }];
     const history = { "555": [{ id: 1, date: Math.floor(Date.now() / 1000), out: false, senderId: "9", sender: "Teammate", text: `hello from ${account}` }] };
     void topChats;
-    return { label: `@${account}_user`, chats, history };
+    return { label: `@${account}_user`, pool: { chats, folders: [ALL_CHATS] }, history };
+  }
+  extras: ChatSummary[] = [];
+  async folderExtras(_folders: Folder[], have: string[]) {
+    this.calls.push({ method: "folderExtras", args: [have.length] });
+    return this.extras.filter((c) => !have.includes(c.id));
   }
   async listChats(limit: number) {
     this.calls.push({ method: "listChats", args: [limit] });
-    if (this.accountName !== "default") return (await this.peek(this.accountName, 0)).chats;
-    return this.chats.map((c) => ({ ...c }));
+    if (this.accountName !== "default") return (await this.peek(this.accountName, 0)).pool;
+    return { chats: this.chats.map((c) => ({ ...c })), folders: this.folders };
   }
   async history(chatId: string, opts: { limit: number; before?: number }) {
     this.calls.push({ method: "history", args: [chatId, opts] });

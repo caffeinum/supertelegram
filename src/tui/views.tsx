@@ -4,7 +4,8 @@ import { useEffect, useRef } from "react";
 import { basename } from "node:path";
 import { C, dayLabel, fit, hhmm, pad, padStart, sameDay, senderColor, shortTime, width } from "./format";
 import { helpRows, paletteEntries } from "./keys";
-import { chatById, currentDraft, draftKey, hasDraft, visibleChats, type State } from "./state";
+import { chatById, currentDraft, currentFolder, draftKey, hasDraft, visibleChats, type State } from "./state";
+import { unreadChats } from "./folders";
 import type { ChatSummary, Msg } from "./types";
 
 const RGBADefaultBg = RGBA.defaultBackground();
@@ -129,6 +130,34 @@ function preview(c: ChatSummary): string {
   const body = c.last.text || (c.last.media ? `[${c.last.media}]` : "");
   const who = c.last.out ? "you: " : c.kind === "group" || c.kind === "supergroup" ? (c.last.from ? `${c.last.from.split(" ")[0]}: ` : "") : "";
   return `${who}${body}`;
+}
+
+// telegram folders as tabs; the badge counts unread (unmuted) chats like telegram does
+export function FolderTabs({ s, cols }: { s: State; cols: number }) {
+  if (s.folders.length < 2) return null;
+  const current = currentFolder(s).id;
+  let used = 1;
+  return (
+    <box height={1} flexDirection="row">
+      <text fg={C.fg}>{" "}</text>
+      {s.folders.map((f) => {
+        const n = unreadChats(s.chats, f);
+        const label = ` ${f.title}${n ? ` ${n}` : ""} `;
+        used += width(label) + 1;
+        if (used > cols - 12) return null;
+        const on = f.id === current && !s.filter;
+        return (
+          <text key={f.id} fg={on ? C.bg : C.fg} bg={on ? C.accent : C.bg} attributes={on ? BOLD : 0}>
+            {label}
+          </text>
+        );
+      })}
+      <box flexGrow={1} />
+      <text fg={C.gray} attributes={DIM}>
+        {"tab ⇥ folders "}
+      </text>
+    </box>
+  );
 }
 
 export function ChatList({ s, cols, onPick }: { s: State; cols: number; rows: number; onPick?: (id: string) => void }) {
@@ -383,6 +412,7 @@ const PALETTE_TITLES: Record<string, string> = {
   "search-chat": "search in this chat",
   file: "attach a file — type a path",
   links: "open which link?",
+  folders: "go to folder",
 };
 
 export function Palette({ s, cols }: { s: State; cols: number }) {

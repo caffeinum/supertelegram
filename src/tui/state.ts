@@ -1,8 +1,9 @@
-import type { ChatSummary, Msg, SearchHit, SourceEvent } from "./types";
+import type { ChatSummary, Folder, Msg, SearchHit, SourceEvent } from "./types";
+import { ALL_CHATS, folderChats } from "./folders";
 
 export type View = "list" | "chat" | "results";
 export type Mode = "normal" | "insert" | "filter";
-export type PaletteKind = "all" | "chats" | "accounts" | "search" | "search-chat" | "file" | "links";
+export type PaletteKind = "all" | "chats" | "accounts" | "search" | "search-chat" | "file" | "links" | "folders";
 
 export interface Draft {
   text: string;
@@ -29,6 +30,8 @@ export interface State {
   mode: Mode;
   chats: ChatSummary[];
   chatsLoaded: boolean;
+  folders: Folder[]; // telegram order; the first is the default folder
+  folderId?: number; // set only when the user picks a folder; otherwise the default (first) one
   filter: string;
   listSel?: string; // chat id — follows the chat, never the row
   open?: OpenChat;
@@ -41,8 +44,9 @@ export interface State {
   pending: string; // first key of a sequence: "g" or "Z"
   scrollReq?: { seq: number; dir: 1 | -1 }; // half-page scroll, carried out by the visible view
   viewer?: { chatId: string; msgId: number; path?: string; error?: string }; // inline image view
-  accountCache: Record<string, { label: string; chats: ChatSummary[] }>; // other accounts, warmed in the background
+  accountCache: Record<string, { label: string; chats: ChatSummary[]; folders: Folder[] }>; // other accounts, warmed in the background
   warmed: boolean;
+  extrasFor?: string; // the account whose folder-only chats have been requested
   toast?: { text: string; error: boolean };
   online: boolean;
   quitArmed: boolean;
@@ -52,6 +56,7 @@ export interface State {
 export type Effect =
   | { type: "loadChats" }
   | { type: "prefetch"; chatIds: string[] }
+  | { type: "loadExtras" }
   | { type: "warmAccounts"; accounts: string[] }
   | { type: "openChat"; chatId: string; markRead: boolean }
   | { type: "loadOlder"; chatId: string; before: number }
@@ -68,6 +73,7 @@ export type Effect =
   | { type: "pasteImage"; key: string; chatId: string }
   | { type: "attachPath"; path: string; key: string; chatId: string }
   | { type: "saveDrafts" }
+  | { type: "saveCache" }
   | { type: "quit" };
 
 export function initialState(account: string, accounts: string[], drafts: Record<string, Draft>, accountLabel = ""): State {
@@ -79,6 +85,7 @@ export function initialState(account: string, accounts: string[], drafts: Record
     mode: "normal",
     chats: [],
     chatsLoaded: false,
+    folders: [ALL_CHATS],
     filter: "",
     drafts,
     history: {},
@@ -108,18 +115,24 @@ export function chatById(s: State, id: string | undefined): ChatSummary | undefi
   return id === undefined ? undefined : s.chats.find((c) => c.id === id);
 }
 
+export function currentFolder(s: State): Folder {
+  return s.folders.find((f) => f.id === s.folderId) ?? s.folders[0] ?? ALL_CHATS;
+}
+
+// the list on screen: the current folder, narrowed by a / filter (which searches every chat, like telegram)
 export function visibleChats(s: State): ChatSummary[] {
   const q = s.filter.toLowerCase();
-  if (!q) return s.chats;
+  if (!q) return folderChats(s.chats, currentFolder(s));
   return s.chats.filter((c) => c.title.toLowerCase().includes(q) || c.username?.toLowerCase().includes(q));
 }
 
 // actions arriving from effects and telegram, as opposed to keys
 export type Action =
-  | { type: "chatsLoaded"; chats: ChatSummary[] }
+  | { type: "chatsLoaded"; chats: ChatSummary[]; folders: Folder[] }
+  | { type: "chatsExtended"; account: string; chats: ChatSummary[] }
   | { type: "historyLoaded"; chatId: string; msgs: Msg[]; mode: "replace" | "prepend"; select?: number; latest: boolean; limit: number }
   | { type: "prefetched"; key: string; msgs: Msg[] }
-  | { type: "accountWarmed"; account: string; label: string; chats: ChatSummary[]; history: Record<string, Msg[]> }
+  | { type: "accountWarmed"; account: string; label: string; chats: ChatSummary[]; folders: Folder[]; history: Record<string, Msg[]> }
   | { type: "historyFailed"; chatId: string; error: string }
   | { type: "sent"; key: string; chatId: string; msg: Msg }
   | { type: "sendFailed"; key: string; error: string; unsent: Draft }
@@ -172,20 +185,40 @@ function mergeMessages(a: Msg[], b: Msg[]): Msg[] {
 export function apply(s: State, a: Action): [State, Effect[]] {
   switch (a.type) {
     case "chatsLoaded": {
-      const listSel = s.listSel && a.chats.some((c) => c.id === s.listSel) ? s.listSel : a.chats[0]?.id;
-      const next = { ...s, chats: a.chats, chatsLoaded: true, listSel, warmed: true };
-      const warm = uncached(next, a.chats.slice(0, PREFETCH_TOP).map((c) => c.id));
+      // open on the default folder (the first in the user's telegram order) unless one is already chosen
+      const folders = a.folders.length ? a.folders : [ALL_CHATS];
+      const folderId = folders.some((f) => f.id === s.folderId) ? s.folderId : undefined;
+      const shaped = { ...s, chats: a.chats, folders, folderId };
+      const shown = visibleChats(shaped);
+      const listSel = s.listSel && shown.some((c) => c.id === s.listSel) ? s.listSel : shown[0]?.id;
+      const next = { ...shaped, chatsLoaded: true, listSel, warmed: true };
+      const warm = uncached(next, shown.slice(0, PREFETCH_TOP).map((c) => c.id));
       const others = s.warmed ? [] : s.accounts.filter((x) => x !== s.account);
+      // chats only a folder names are kept across refreshes (they're not among the recent ones)
+      const keep = s.chats.filter((c) => !a.chats.some((x) => x.id === c.id) && folders.some((f) => !f.all && (f.include.includes(c.id) || f.pinned.includes(c.id))));
+      const needsExtras = folders.some((f) => !f.all && (f.include.length || f.pinned.length)) && s.extrasFor !== s.account;
+      const merged = { ...next, chats: [...a.chats, ...keep], extrasFor: needsExtras ? s.account : s.extrasFor };
       return [
-        next,
-        [...(warm.length ? [{ type: "prefetch" as const, chatIds: warm }] : []), ...(others.length ? [{ type: "warmAccounts" as const, accounts: others }] : [])],
+        merged,
+        [
+          { type: "saveCache" as const },
+          ...(warm.length ? [{ type: "prefetch" as const, chatIds: warm }] : []),
+          ...(needsExtras ? [{ type: "loadExtras" as const }] : []),
+          ...(others.length ? [{ type: "warmAccounts" as const, accounts: others }] : []),
+        ],
       ];
+    }
+    case "chatsExtended": {
+      if (a.account !== s.account) return [s, []];
+      const known = new Set(s.chats.map((c) => c.id));
+      const added = a.chats.filter((c) => !known.has(c.id));
+      return [{ ...s, chats: [...s.chats, ...added] }, added.length ? [{ type: "saveCache" }] : []];
     }
     case "accountWarmed": {
       if (a.account === s.account) return [s, []];
       const history = { ...s.history };
       for (const [chatId, msgs] of Object.entries(a.history)) history[`${a.account}:${chatId}`] = msgs;
-      return [{ ...s, history, accountCache: { ...s.accountCache, [a.account]: { label: a.label, chats: a.chats } } }, []];
+      return [{ ...s, history, accountCache: { ...s.accountCache, [a.account]: { label: a.label, chats: a.chats, folders: a.folders } } }, []];
     }
     case "prefetched": {
       if (!a.key.startsWith(`${s.account}:`)) return [s, []];
@@ -287,7 +320,7 @@ export function apply(s: State, a: Action): [State, Effect[]] {
       // the warmed view (if any) is already on screen; this only confirms and refreshes it
       if (s.account === a.account) return [{ ...s, accountLabel: a.label }, [{ type: "loadChats" }]];
       return [
-        { ...s, account: a.account, accountLabel: a.label, chats: [], chatsLoaded: false, open: undefined, results: undefined, view: "list", mode: "normal", listSel: undefined, filter: "" },
+        { ...s, account: a.account, accountLabel: a.label, chats: [], chatsLoaded: false, folders: [ALL_CHATS], folderId: undefined, open: undefined, results: undefined, view: "list", mode: "normal", listSel: undefined, filter: "" },
         [{ type: "loadChats" }],
       ];
     }

@@ -1,6 +1,7 @@
 import * as ed from "./editor";
 import {
   uncached,
+  currentFolder,
   chatById,
   currentDraft,
   draftKey,
@@ -50,6 +51,7 @@ export function token(k: Key): string {
   if (k.meta && k.name.length === 1) return `alt-${k.name}`;
   if (k.meta && k.name === "return") return "alt-enter";
   if (k.meta && k.name === "backspace") return "alt-backspace";
+  if (k.shift && k.name === "tab") return "shift-tab";
   if (k.name === "return" || k.name === "enter") return "enter";
   if (NAMED.has(k.name)) return k.name;
   if (k.name === "space") return " ";
@@ -87,6 +89,20 @@ export function openChat(s: State, chatId: string): Result {
 // the view scrolls and then picks the row under the cursor (vim ctrl-d / ctrl-u)
 function halfPage(s: State, dir: 1 | -1): Result {
   return [{ ...s, scrollReq: { seq: (s.scrollReq?.seq ?? 0) + 1, dir } }, []];
+}
+
+export function goFolder(s: State, folderId: number): Result {
+  const next = { ...s, view: "list" as const, mode: "normal" as const, filter: "", folderId, palette: undefined };
+  const shown = visibleChats(next);
+  const listSel = shown.some((c) => c.id === s.listSel) ? s.listSel : shown[0]?.id;
+  const warm = uncached(next, shown.slice(0, 6).map((c) => c.id));
+  return [{ ...next, listSel }, warm.length ? [{ type: "prefetch", chatIds: warm }] : []];
+}
+
+function cycleFolder(s: State, dir: 1 | -1): Result {
+  if (s.folders.length < 2) return toast(s, "you have no telegram folders on this account");
+  const i = Math.max(0, s.folders.findIndex((f) => f.id === currentFolder(s).id));
+  return goFolder(s, s.folders[(i + dir + s.folders.length) % s.folders.length]!.id);
 }
 
 function moveList(s: State, delta: number | "top" | "bottom"): Result {
@@ -160,7 +176,7 @@ export function switchTo(s: State, name: string): Result {
   if (name === s.account) return [{ ...s, palette: undefined }, []];
   if (Object.keys(s.outbox).length) return [{ ...s, palette: undefined, toast: { text: "wait for the message to finish sending before switching accounts", error: true } }, []];
   // keep this account warm for switching back
-  const accountCache = { ...s.accountCache, [s.account]: { label: s.accountLabel, chats: s.chats } };
+  const accountCache = { ...s.accountCache, [s.account]: { label: s.accountLabel, chats: s.chats, folders: s.folders } };
   const warm = s.accountCache[name];
   if (!warm) return [{ ...s, palette: undefined, accountCache }, [{ type: "switchAccount", name }]];
   // warmed: show it now. telegram calls made before the switch lands wait for it, so nothing goes out as the old account
@@ -172,8 +188,10 @@ export function switchTo(s: State, name: string): Result {
       account: name,
       accountLabel: warm.label,
       chats: warm.chats,
+      folders: warm.folders,
+      folderId: undefined, // that account's default folder
       chatsLoaded: true,
-      listSel: warm.chats[0]?.id,
+      listSel: visibleChats({ ...s, chats: warm.chats, folders: warm.folders, folderId: undefined, filter: "" })[0]?.id,
       open: undefined,
       results: undefined,
       view: "list",
@@ -351,6 +369,9 @@ export const COMMANDS: Command[] = [
     },
   },
   { id: "account", title: "switch account…", keys: ["ga"], views: ALL, run: palette("accounts") },
+  { id: "folder", title: "go to folder…", keys: ["gf"], views: ALL, run: palette("folders") },
+  { id: "next-folder", title: "next folder", keys: ["tab", "gt"], views: ["list"], run: (s) => cycleFolder(s, 1) },
+  { id: "prev-folder", title: "previous folder", keys: ["shift-tab", "gT"], views: ["list"], run: (s) => cycleFolder(s, -1) },
   {
     id: "copy-id",
     title: "copy chat id",
@@ -544,6 +565,11 @@ export function paletteEntries(s: State): PaletteEntry[] {
       }));
   }
   if (p.kind === "chats") return chatEntries(s, q);
+  if (p.kind === "folders") {
+    return s.folders
+      .filter((f) => fuzzy(q, f.title) > 0)
+      .map((f) => ({ label: f.title, hint: f.id === currentFolder(s).id ? "current" : "", run: (s2: State): Result => goFolder(s2, f.id) }));
+  }
   if (p.kind === "links") {
     const urls = s.open?.messages.find((m) => m.id === s.open?.sel)?.urls ?? [];
     return urls
@@ -587,7 +613,10 @@ export function paletteEntries(s: State): PaletteEntry[] {
         .filter((a) => a !== s.account && fuzzy(q, `account ${a}`) > 0)
         .map((a) => ({ label: `switch to account ${a}`, hint: "ga", run: (s2: State): Result => switchTo(s2, a) }))
     : [];
-  return [...commands, ...accounts, ...(q ? chatEntries(s, q).slice(0, 8) : [])];
+  const folders = q
+    ? s.folders.filter((f) => fuzzy(q, `folder ${f.title}`) > 0).map((f) => ({ label: `folder: ${f.title}`, hint: "gf", run: (s2: State): Result => goFolder(s2, f.id) }))
+    : [];
+  return [...commands, ...folders, ...accounts, ...(q ? chatEntries(s, q).slice(0, 8) : [])];
 }
 
 function paletteKey(s: State, k: Key, t: string): Result {

@@ -41,6 +41,8 @@ drive it through a real tty with `expect`. send keystrokes separately with a pau
 - expect harnesses must not hardcode the active account in prompts (aleks switches it).
 - scrolling: opentui frame callbacks run before layout; anything reading positions (scrolloff, prepend anchoring, half-page) runs as a post-process fn (`useCursorScroll` in views.tsx).
 - account switching: effects that call telegram wait for an in-flight switch (`switching` in app.tsx), so a warmed account shown early can't send as the old one.
+- startup: bare `telegram` (tty) imports only the tui — no cli, no gramjs — and draws from `~/.supertelegram/cache/<account>.json`; `LazySource` loads gramjs + connects behind the first frame (~0.45–0.5s to a full frame vs ~0.95s). keep gramjs imports out of the tui's first-frame modules; `src/client/lifecycle.ts` holds the flags run.ts needs without gramjs.
+- folders: `GetDialogFilters` peers can be InputPeerChat, which gramjs's getPeerId rejects — use `inputPeerId`. folder-only chats come from `GetPeerDialogs`, which is rate-limited (back-to-back batches drew a ~10s flood wait): loaded in the background, spaced 2s. gramjs's Dialog constructor crashes on a chat with no top message.
 - downloads must keep the file extension (`defaultFileName`), or `open` hands a jpeg to TextEdit.
 - real terminals send DEL (0x7f) for backspace; the opentui mock sends \b. classify keys by name before treating a byte as text.
 - colors: only `C.fg`/`C.bg` (terminal defaults) and palette indexes — opentui's implicit text color is white rgb, invisible on light themes (aleks runs a light cmux theme). the theme-safe test fails on any rgb color or inverse video.

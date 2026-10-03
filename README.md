@@ -56,9 +56,14 @@ it's modal like vim, so letters never land in a message by accident:
 | reply / media / copy | `r` on a selected message · `v` view image inline (j/k through the chat's media) · `o` open in another app · `gx` open link · `y` copy text |
 | image | `ctrl-v` pastes the clipboard image (or drag a file in) as an attachment chip |
 | go to | `gc` chat… · `gs` search everywhere · `gu` next unread · `gi` chat list · `gm` saved messages · `ga` account |
+| folders | `tab` / `shift-tab` next/prev folder · `gf` folder… — opens on your default folder (the first in telegram's order) |
 | everything | `ctrl-k` or `:` — command palette with every feature and its shortcut · `?` help |
 | quit | `ctrl-c ctrl-c` or `:q` — drafts are kept per chat (`~/.supertelegram/drafts.json`) |
 
+- startup is instant: the last chat list (and folders) is cached in `~/.supertelegram/cache/<account>.json`
+  (owner-only; it holds chat titles and last-message previews), drawn in about half a second, then refreshed live
+- your telegram folders show as tabs with unread badges; chats a folder names that are older than your
+  recent list fill in in the background
 - chats open instantly: the top of the list and the chats around your cursor are preloaded (never marked read), and so are your other accounts, so `ga` is instant too
 - images render inline with the kitty graphics protocol (ghostty, cmux, kitty, wezterm) and as block characters elsewhere
 - opening a chat marks it read; moving through the list never does
