@@ -1,0 +1,58 @@
+src/tui/state.ts
+  s_16629319d5ff14::t_982b3b99ea2c5d 26,64,67,115,234
+src/tui/app.tsx
+  s_16629319d5ff14::t_982b3b99ea2c5d 87
+src/tui/format.ts
+  s_16629319d5ff14::t_0961d61b14f572 5-6
+src/tui/gram-source.ts
+  s_16629319d5ff14::t_982b3b99ea2c5d 69,95,98-99,108-109
+  s_16629319d5ff14::t_54be2ba13cdb59 110-111
+tests/tui.test.tsx
+  s_16629319d5ff14::t_2379cd00e62401 292-300,303-320,447
+  s_16629319d5ff14::t_edb3f46902132a 62-66
+  s_16629319d5ff14::t_982b3b99ea2c5d 50,410-418,448
+  s_16629319d5ff14::t_ebefdd29dfec16 38,408-409,419-446
+  s_16629319d5ff14::t_8a342e0f971f72 301-302
+  s_16629319d5ff14::t_7164b1891e3f63 449
+src/tui/fake-source.ts
+  s_16629319d5ff14::t_982b3b99ea2c5d 20-22
+src/tui/types.ts
+  s_16629319d5ff14::t_982b3b99ea2c5d 47
+src/tui/views.tsx
+  s_16629319d5ff14::t_0961d61b14f572 10,35,70,81,126,160,208,236,245,248-250,285,293,318,321-323,335,354,359,363,392
+  s_16629319d5ff14::t_982b3b99ea2c5d 29,382-389
+src/tui/index.tsx
+  s_16629319d5ff14::t_982b3b99ea2c5d 27
+src/tui/keys.ts
+  s_16629319d5ff14::t_8a342e0f971f72 39-46,54,56,375,397,519
+  s_16629319d5ff14::t_4e479f17557dcb 325-326,328,333-336
+  s_16629319d5ff14::t_d140fcbb7fa68f 317-323
+CLAUDE.md
+  s_ed25aaaf9c7e77::t_12af3641a489e1 42-43
+package.json
+  s_ed25aaaf9c7e77::t_112ef5ca272291 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e8a1d9969ba8d37d68347aa7ac243fef6cd8b004",
+  "prompts": {},
+  "sessions": {
+    "s_16629319d5ff14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "178efc37-68c6-4170-ba93-827188df0ccd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    },
+    "s_ed25aaaf9c7e77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90dd1251-161e-469a-96db-040d1e555035",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
