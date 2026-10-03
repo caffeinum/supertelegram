@@ -10,6 +10,7 @@ import type { DataSource } from "./types";
 import { ChatList, ChatView, Header, Help, Palette, Prompt, Results, StatusBar } from "./views";
 
 const HISTORY_PAGE = 60;
+const PREFETCH_CONCURRENCY = 2;
 const CHATS = 200;
 
 type Step = (s: State) => [State, Effect[]];
@@ -29,6 +30,8 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
   const ref = useRef(initial);
   const { width: cols, height: rows } = useTerminalDimensions();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // prefetch queue: newest request first (the chat under the cursor), a couple at a time, never twice
+  const prefetch = useRef({ queue: [] as { account: string; chatId: string }[], busy: 0, seen: new Set<string>() });
 
   const runRef = useRef<(f: Step) => void>(() => {});
   const act = useCallback((a: Action) => runRef.current((s) => apply(s, a)), []);
@@ -37,6 +40,33 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, openF
     async (e: Effect) => {
       const fail = (what: string) => (err: unknown) => act({ type: "toast", text: `${what}: ${message(err)}`, error: true });
       switch (e.type) {
+        case "prefetch": {
+          const q = prefetch.current;
+          const account = ref.current.account;
+          for (const chatId of [...e.chatIds].reverse()) {
+            const key = `${account}:${chatId}`;
+            if (q.seen.has(key)) continue;
+            q.seen.add(key);
+            q.queue.unshift({ account, chatId });
+          }
+          q.queue.length = Math.min(q.queue.length, 12);
+          const pump = () => {
+            while (q.busy < PREFETCH_CONCURRENCY && q.queue.length) {
+              const job = q.queue.shift()!;
+              if (job.account !== ref.current.account) continue;
+              q.busy++;
+              source
+                .history(job.chatId, { limit: HISTORY_PAGE })
+                .then((msgs) => act({ type: "prefetched", key: `${job.account}:${job.chatId}`, msgs }))
+                .catch(() => q.seen.delete(`${job.account}:${job.chatId}`)) // a miss just means a normal open later
+                .finally(() => {
+                  q.busy--;
+                  pump();
+                });
+            }
+          };
+          return pump();
+        }
         case "loadChats":
           return source.listChats(CHATS).then((chats) => act({ type: "chatsLoaded", chats }), fail("couldn't load chats"));
         case "openChat":

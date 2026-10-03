@@ -1,5 +1,6 @@
 import * as ed from "./editor";
 import {
+  uncached,
   chatById,
   currentDraft,
   draftKey,
@@ -68,6 +69,8 @@ export function openChat(s: State, chatId: string): Result {
   if (s.open?.chatId === chatId && s.open.messages.length) {
     return [{ ...s, chats, view: "chat", mode: "normal", listSel: chatId, open: { ...s.open, newBelow: 0 } }, markRead ? [{ type: "markRead", chatId }] : []];
   }
+  // preloaded? paint it now; the fetch below only refreshes
+  const cached = s.history[draftKey(s, chatId)] ?? [];
   return [
     {
       ...s,
@@ -75,7 +78,7 @@ export function openChat(s: State, chatId: string): Result {
       view: "chat",
       mode: "normal",
       listSel: chatId,
-      open: { chatId, messages: [], loading: true, atStart: false, latest: true, newBelow: 0 },
+      open: { chatId, messages: cached, sel: cached[cached.length - 1]?.id, loading: cached.length === 0, atStart: false, latest: true, newBelow: 0 },
     },
     [{ type: "openChat", chatId, markRead }],
   ];
@@ -86,7 +89,10 @@ function moveList(s: State, delta: number | "top" | "bottom"): Result {
   if (!chats.length) return [s, []];
   const i = Math.max(0, chats.findIndex((c) => c.id === s.listSel));
   const j = delta === "top" ? 0 : delta === "bottom" ? chats.length - 1 : Math.min(chats.length - 1, Math.max(0, i + delta));
-  return [{ ...s, listSel: chats[j]!.id }, []];
+  const next = { ...s, listSel: chats[j]!.id };
+  // warm the chat under the cursor and its neighbours, so enter is instant (never marks read)
+  const around = uncached(next, [chats[j]?.id, chats[j + 1]?.id, chats[j - 1]?.id, chats[j + 2]?.id]);
+  return [next, around.length ? [{ type: "prefetch", chatIds: around }] : []];
 }
 
 function moveChat(s: State, delta: number | "top" | "bottom"): Result {

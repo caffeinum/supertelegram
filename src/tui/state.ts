@@ -34,6 +34,7 @@ export interface State {
   open?: OpenChat;
   results?: { query: string; scope?: string; hits: SearchHit[]; sel: number; loading: boolean };
   drafts: Record<string, Draft>; // `${account}:${chatId}`
+  history: Record<string, Msg[]>; // preloaded messages per `${account}:${chatId}`, newest page
   outbox: Record<string, Draft>; // drafts in flight; restored if the send fails
   palette?: { kind: PaletteKind; query: string; index: number };
   help: boolean;
@@ -46,6 +47,7 @@ export interface State {
 
 export type Effect =
   | { type: "loadChats" }
+  | { type: "prefetch"; chatIds: string[] }
   | { type: "openChat"; chatId: string; markRead: boolean }
   | { type: "loadOlder"; chatId: string; before: number }
   | { type: "jumpTo"; chatId: string; msgId: number }
@@ -72,6 +74,7 @@ export function initialState(account: string, accounts: string[], drafts: Record
     chatsLoaded: false,
     filter: "",
     drafts,
+    history: {},
     outbox: {},
     help: false,
     pending: "",
@@ -106,6 +109,7 @@ export function visibleChats(s: State): ChatSummary[] {
 export type Action =
   | { type: "chatsLoaded"; chats: ChatSummary[] }
   | { type: "historyLoaded"; chatId: string; msgs: Msg[]; mode: "replace" | "prepend"; select?: number; latest: boolean; limit: number }
+  | { type: "prefetched"; key: string; msgs: Msg[] }
   | { type: "historyFailed"; chatId: string; error: string }
   | { type: "sent"; key: string; chatId: string; msg: Msg }
   | { type: "sendFailed"; key: string; error: string; unsent: Draft }
@@ -115,6 +119,18 @@ export type Action =
   | { type: "accountSwitched"; account: string; label: string }
   | { type: "toast"; text: string; error?: boolean }
   | { type: "event"; event: SourceEvent };
+
+export const PREFETCH_TOP = 10;
+
+// messages we already know for a chat: shown instantly on open, refreshed in the background
+export function remember(s: State, chatId: string, msgs: Msg[]): Record<string, Msg[]> {
+  const key = draftKey(s, chatId);
+  return { ...s.history, [key]: mergeMessages(s.history[key] ?? [], msgs).slice(-200) };
+}
+
+export function uncached(s: State, ids: (string | undefined)[]): string[] {
+  return [...new Set(ids.filter((id): id is string => id !== undefined && !s.history[draftKey(s, id)]))];
+}
 
 function finishQuit(s: State, outbox: Record<string, Draft>): Effect[] {
   return s.quitPending && Object.keys(outbox).length === 0 ? [{ type: "saveDrafts" }, { type: "quit" }] : [];
@@ -145,26 +161,42 @@ export function apply(s: State, a: Action): [State, Effect[]] {
   switch (a.type) {
     case "chatsLoaded": {
       const listSel = s.listSel && a.chats.some((c) => c.id === s.listSel) ? s.listSel : a.chats[0]?.id;
-      return [{ ...s, chats: a.chats, chatsLoaded: true, listSel }, []];
+      const next = { ...s, chats: a.chats, chatsLoaded: true, listSel };
+      const warm = uncached(next, a.chats.slice(0, PREFETCH_TOP).map((c) => c.id));
+      return [next, warm.length ? [{ type: "prefetch", chatIds: warm }] : []];
+    }
+    case "prefetched": {
+      if (!a.key.startsWith(`${s.account}:`)) return [s, []];
+      const known = s.history[a.key] ?? [];
+      return [{ ...s, history: { ...s.history, [a.key]: mergeMessages(known, a.msgs).slice(-200) } }, []];
     }
     case "historyLoaded": {
-      if (!s.open || s.open.chatId !== a.chatId) return [s, []];
-      const messages = a.mode === "replace" ? a.msgs : mergeMessages(a.msgs, s.open.messages);
+      if (!s.open || s.open.chatId !== a.chatId) return [{ ...s, history: a.latest ? remember(s, a.chatId, a.msgs) : s.history }, []];
+      const o = s.open;
+      const wasAtEnd = o.sel === undefined || o.sel === o.messages[o.messages.length - 1]?.id;
+      // a refresh of a chat shown from cache merges in, so nothing jumps under the cursor
+      const refreshing = a.mode === "replace" && a.latest && o.latest && o.messages.length > 0;
+      const messages = a.mode === "replace" && !refreshing ? a.msgs : mergeMessages(a.msgs, o.messages);
       const sel =
         a.mode === "prepend"
-          ? (a.msgs[a.msgs.length - 1]?.id ?? s.open.sel)
-          : (a.select ?? messages[messages.length - 1]?.id);
+          ? (a.msgs[a.msgs.length - 1]?.id ?? o.sel)
+          : refreshing
+            ? wasAtEnd
+              ? messages[messages.length - 1]?.id
+              : o.sel
+            : (a.select ?? messages[messages.length - 1]?.id);
       return [
         {
           ...s,
+          history: a.latest ? remember(s, a.chatId, a.msgs) : s.history,
           open: {
-            ...s.open,
+            ...o,
             messages,
             sel,
             loading: false,
-            atStart: a.msgs.length < a.limit,
-            latest: a.mode === "replace" ? a.latest : s.open.latest,
-            newBelow: a.mode === "replace" ? 0 : s.open.newBelow,
+            atStart: a.mode === "prepend" || !refreshing ? a.msgs.length < a.limit : o.atStart,
+            latest: a.mode === "replace" ? a.latest : o.latest,
+            newBelow: a.mode === "replace" ? 0 : o.newBelow,
           },
         },
         [],
@@ -190,7 +222,7 @@ export function apply(s: State, a: Action): [State, Effect[]] {
         withChat(s, a.chatId, (c) => ({ ...c, unread: 0, last: { text: a.msg.text, out: true, date: a.msg.date, media: a.msg.media } })),
         a.chatId
       );
-      return [{ ...s, outbox, open, chats }, done];
+      return [{ ...s, outbox, open, chats, history: remember(s, a.chatId, [a.msg]) }, done];
     }
     case "sendFailed": {
       // never retried: put back what didn't go out (files already sent stay sent), and say what happened
@@ -231,7 +263,7 @@ export function apply(s: State, a: Action): [State, Effect[]] {
     }
     case "accountSwitched":
       return [
-        { ...s, account: a.account, accountLabel: a.label, chats: [], chatsLoaded: false, open: undefined, results: undefined, view: "list", mode: "normal", listSel: undefined, filter: "" },
+        { ...s, account: a.account, accountLabel: a.label, history: {}, chats: [], chatsLoaded: false, open: undefined, results: undefined, view: "list", mode: "normal", listSel: undefined, filter: "" },
         [{ type: "loadChats" }],
       ];
     case "toast":
@@ -268,5 +300,7 @@ function applyEvent(s: State, e: SourceEvent): [State, Effect[]] {
     };
     if (viewing && !e.msg.out) effects.push({ type: "markRead", chatId: e.chatId });
   }
-  return [{ ...s, chats, open }, effects];
+  const key = draftKey(s, e.chatId);
+  const history = s.history[key] ? { ...s.history, [key]: mergeMessages(s.history[key]!, [e.msg]).slice(-200) } : s.history;
+  return [{ ...s, chats, open, history }, effects];
 }

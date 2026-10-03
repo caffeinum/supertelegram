@@ -318,6 +318,38 @@ describe("backspace as a real terminal sends it", () => {
   });
 });
 
+describe("preload", () => {
+  test("the top of the list is prefetched at start, and nothing gets marked read", async () => {
+    const { src, until } = await setup();
+    await until(() => new Set(src.calls.filter((c) => c.method === "history").map((c) => c.args[0])).size === 4);
+    expect(src.calls.filter((c) => c.method === "markRead")).toHaveLength(0);
+  });
+
+  test("a preloaded chat opens instantly even when telegram is slow, then refreshes in place", async () => {
+    const { src, until, keys, frame } = await setup();
+    await until(() => src.calls.filter((c) => c.method === "history").length >= 4);
+    await Bun.sleep(50);
+    src.historyDelayMs = 1500;
+    src.messages["42"]!.push({ id: 10, date: now, out: false, senderId: "42", sender: "Kate", text: "arrived while closed" });
+    await keys("j", "enter");
+    const t0 = Date.now();
+    await until((x) => x.includes("look at this"), 500); // from cache, not after the 1.5s fetch
+    expect(Date.now() - t0).toBeLessThan(500);
+    expect(frame()).not.toContain("loading messages");
+    await until((x) => x.includes("arrived while closed"), 4000); // the background refresh merges in
+  });
+
+  test("resting the cursor on a chat prefetches it and its neighbours", async () => {
+    const s = await setup();
+    const extra = Array.from({ length: 12 }, (_, i) => ({ id: `${900 + i}`, title: `Chat ${i}`, kind: "user" as const, unread: 0, mentions: 0, muted: false, pinned: false }));
+    s.src.chats.push(...extra);
+    await s.keys("ctrl-r");
+    await s.until((x) => x.includes("Chat 0"));
+    await s.keys("G");
+    await s.until(() => s.src.calls.some((c) => c.method === "history" && c.args[0] === "911"));
+  });
+});
+
 describe("review regressions", () => {
   test("search picked from insert mode: typing in results never reaches the prompt or sends", async () => {
     const { keys, until, src } = await setup();

@@ -4,6 +4,7 @@ import type { ChatSummary, DataSource, Msg, SearchHit, SendOpts, SourceEvent } f
 export class FakeSource implements DataSource {
   calls: { method: string; args: unknown[] }[] = [];
   failNextSend: string | undefined;
+  historyDelayMs = 0;
   private listeners = new Set<(e: SourceEvent) => void>();
   private nextId = 1000;
 
@@ -33,6 +34,7 @@ export class FakeSource implements DataSource {
   }
   async history(chatId: string, opts: { limit: number; before?: number }) {
     this.calls.push({ method: "history", args: [chatId, opts] });
+    if (this.historyDelayMs) await Bun.sleep(this.historyDelayMs);
     const all = (this.messages[chatId] ?? []).filter((m) => opts.before === undefined || m.id < opts.before);
     return all.slice(-opts.limit);
   }
