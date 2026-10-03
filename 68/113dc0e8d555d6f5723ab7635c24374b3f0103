@@ -1,0 +1,76 @@
+src/tui/folders.ts
+  s_16629319d5ff14::t_ee3ee381fefe2f 1-39
+tests/tui.test.tsx
+  s_16629319d5ff14::t_7f0db9e7ac0a0b 439-487,512-518
+  s_16629319d5ff14::t_e6d338914f26f0 488-511
+src/client/lifecycle.ts
+  s_16629319d5ff14::t_916d378b97e30a 1-23
+src/tui/fake-source.ts
+  s_16629319d5ff14::t_6d7a73eefb7bd8 45-48
+  s_16629319d5ff14::t_0b36f13e4fe10c 1-2,14-15,43,52-53
+  s_16629319d5ff14::t_ccc79c300feef6 44
+src/tui/state.ts
+  s_16629319d5ff14::t_6d7a73eefb7bd8 59,132,197-198,202-203,205,207-208,211-214
+  s_16629319d5ff14::t_9c9819902af74e 49,76,199-200,204,206,215
+  s_16629319d5ff14::t_0b36f13e4fe10c 1-2,6,33,47,88,118-122,125,131,135,188-189,191-195,221,323
+  s_16629319d5ff14::t_2cc9cd131eeb62 34,190
+  s_16629319d5ff14::t_26c9fdbc0edf31 216
+src/tui/lazy-source.ts
+  s_16629319d5ff14::t_916d378b97e30a 1-58
+src/tui/app.tsx
+  s_16629319d5ff14::t_a12f57da819429 210-213
+  s_16629319d5ff14::t_0b36f13e4fe10c 10,83,139,244-247
+  s_16629319d5ff14::t_9c9819902af74e 9,22,29,34,172-182
+  s_16629319d5ff14::t_6d7a73eefb7bd8 128-134
+src/tui/types.ts
+  s_16629319d5ff14::t_6d7a73eefb7bd8 80-81
+  s_16629319d5ff14::t_ee3ee381fefe2f 13-14,18-40,78-79
+  s_16629319d5ff14::t_a12f57da819429 72
+src/tui/views.tsx
+  s_16629319d5ff14::t_0b36f13e4fe10c 7-8,135-162,415
+src/cli/run.ts
+  s_16629319d5ff14::t_916d378b97e30a 2,8-10,19,22-37
+  s_16629319d5ff14::t_03777471e8bc95 6-7
+src/tui/cache.ts
+  s_16629319d5ff14::t_9c9819902af74e 1-25
+src/tui/index.tsx
+  s_16629319d5ff14::t_916d378b97e30a 7-8,12-18,33-35
+  s_16629319d5ff14::t_a12f57da819429 36-39
+  s_16629319d5ff14::t_9c9819902af74e 6,41,57
+  s_16629319d5ff14::t_e6d338914f26f0 9,42-45
+src/tui/gram-source.ts
+  s_16629319d5ff14::t_a12f57da819429 87-92,215-216,218-224,227-229,269-271,283,303,308,313,320,329,334,340,374,425
+  s_16629319d5ff14::t_ee3ee381fefe2f 14-16,67-68,93-98,109,111-126,130-140,143,148,155-158,161-164,166-178,196,198-201,203-204,289-290,293-297,299,302,304
+  s_16629319d5ff14::t_a01d0289222a44 99-108,110,142,159-160
+  s_16629319d5ff14::t_6d7a73eefb7bd8 127-129,141,144-147,149-154,165,202,205-206,291,305-307,309
+  s_16629319d5ff14::t_2c4f29aaeee717 179-195,197
+src/tui/keys.ts
+  s_16629319d5ff14::t_0b36f13e4fe10c 4,54,94-107,179,191,372-374,568-572,616-619
+  s_16629319d5ff14::t_2cc9cd131eeb62 192,194
+src/cli/cli.ts
+  s_16629319d5ff14::t_916d378b97e30a 167,169
+src/client/telegram.ts
+  s_16629319d5ff14::t_916d378b97e30a 11-13,271,275,277
+CLAUDE.md
+  s_16629319d5ff14::t_2ad26536e3af0b 44-45
+README.md
+  s_16629319d5ff14::t_219d6fad1ff126 59,63-66
+package.json
+  s_16629319d5ff14::t_ec68869d366402 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "68113dc0e8d555d6f5723ab7635c24374b3f0103",
+  "prompts": {},
+  "sessions": {
+    "s_16629319d5ff14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "178efc37-68c6-4170-ba93-827188df0ccd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
