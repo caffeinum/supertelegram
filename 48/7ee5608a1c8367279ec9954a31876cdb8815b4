@@ -1,0 +1,59 @@
+src/tui/types.ts
+  s_16629319d5ff14::t_877ead7d2ba672 51-52
+  s_16629319d5ff14::t_5dceceb6735c4f 27
+src/tui/views.tsx
+  s_16629319d5ff14::t_8b3fbf91c6f6f2 2,15-32,34-95,134,137,266,269,355,358
+  s_16629319d5ff14::t_5dceceb6735c4f 385
+  s_16629319d5ff14::t_8824519e350752 475-500
+src/tui/keys.ts
+  s_16629319d5ff14::t_8824519e350752 185,187-211,298,311-320,418
+  s_16629319d5ff14::t_5dceceb6735c4f 69,77,299-310,547-552
+  s_16629319d5ff14::t_877ead7d2ba672 162-184
+  s_16629319d5ff14::t_8b3fbf91c6f6f2 87-91,223-224
+  s_16629319d5ff14::t_9bf74443f5c776 186
+src/tui/app.tsx
+  s_16629319d5ff14::t_5dceceb6735c4f 144-145
+  s_16629319d5ff14::t_8824519e350752 10,146-150,231
+  s_16629319d5ff14::t_877ead7d2ba672 38-41,45-50,126-133
+  s_16629319d5ff14::t_8b3fbf91c6f6f2 209-210,214,218,220
+tests/tui.test.tsx
+  s_16629319d5ff14::t_70f2700258cf58 46,54-56,92,356-437
+  s_16629319d5ff14::t_9f3e29c1c69a79 438
+src/tui/fake-source.ts
+  s_16629319d5ff14::t_70f2700258cf58 8-9,31,54,82-83,94
+  s_16629319d5ff14::t_877ead7d2ba672 34-41,44
+src/tui/state.ts
+  s_16629319d5ff14::t_5dceceb6735c4f 5,66
+  s_16629319d5ff14::t_8824519e350752 43,65,132,296-299
+  s_16629319d5ff14::t_877ead7d2ba672 44-45,55,85-86,122,176,178-188,286-288,290,293
+  s_16629319d5ff14::t_8b3fbf91c6f6f2 42,131,300-315
+src/tui/gram-source.ts
+  s_16629319d5ff14::t_5dceceb6735c4f 23-37,41,164
+  s_16629319d5ff14::t_877ead7d2ba672 9,145-163
+  s_16629319d5ff14::t_43a277851e18e3 13,240-241
+  s_16629319d5ff14::t_d2f1956da5b885 165
+src/cli/chat.ts
+  s_16629319d5ff14::t_43a277851e18e3 325
+CLAUDE.md
+  s_16629319d5ff14::t_d3e11ff025a558 42-44
+README.md
+  s_16629319d5ff14::t_666d84f3e08c08 53,56,62-63
+package.json
+  s_16629319d5ff14::t_34c70d9fb90871 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "487ee5608a1c8367279ec9954a31876cdb8815b4",
+  "prompts": {},
+  "sessions": {
+    "s_16629319d5ff14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "178efc37-68c6-4170-ba93-827188df0ccd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
