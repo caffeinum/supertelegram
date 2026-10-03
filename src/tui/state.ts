@@ -142,6 +142,7 @@ export type Action =
   | { type: "accountSwitched"; account: string; label: string }
   | { type: "toast"; text: string; error?: boolean }
   | { type: "pick"; id: string } // the view picked the row under the cursor after scrolling
+  | { type: "resync" } // backstop for missed live updates (gramjs has no catch-up): refresh list + open chat
   | { type: "viewerReady"; chatId: string; msgId: number; path?: string; error?: string }
   | { type: "event"; event: SourceEvent };
 
@@ -330,6 +331,11 @@ export function apply(s: State, a: Action): [State, Effect[]] {
       // only if the user is still looking at that image
       if (!s.viewer || s.viewer.chatId !== a.chatId || s.viewer.msgId !== a.msgId) return [s, []];
       return [{ ...s, viewer: { ...s.viewer, path: a.path, error: a.error } }, []];
+    case "resync": {
+      const effects: Effect[] = [{ type: "loadChats" }];
+      if (s.view === "chat" && s.open?.latest && !s.open.loading) effects.push({ type: "openChat", chatId: s.open.chatId, markRead: false });
+      return [s, effects];
+    }
     case "pick": {
       if (s.view === "list") {
         const next = { ...s, listSel: a.id };

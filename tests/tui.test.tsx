@@ -40,7 +40,7 @@ type Setup = { t: Awaited<ReturnType<typeof testRender>> };
 // react's act() warnings are noise here: the renderer flushes on its own
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
 
-async function setup(opts: { width?: number; height?: number; drafts?: Record<string, Draft>; messages?: Record<string, Msg[]> } = {}) {
+async function setup(opts: { width?: number; height?: number; drafts?: Record<string, Draft>; messages?: Record<string, Msg[]>; resyncMs?: number } = {}) {
   const src = new FakeSource(chats(), opts.messages ?? msgs());
   const saved: Record<string, Draft>[] = [];
   const opened: string[] = [];
@@ -51,6 +51,7 @@ async function setup(opts: { width?: number; height?: number; drafts?: Record<st
       initial={initialState("default", ["default", "work"], opts.drafts ?? {}, "@default_user")}
       onQuit={() => (quit = true)}
       persistDrafts={(d) => saved.push(structuredClone(d))}
+      resyncMs={opts.resyncMs ?? 60_000}
       openFile={async (p: string) => {
         opened.push(p);
       }}
@@ -514,6 +515,16 @@ describe("folders", () => {
     await s.keys("/", "saved");
     await s.until((x) => x.includes("Saved Messages"));
   });
+});
+
+test("a message whose live update was lost still shows up on the next resync", async () => {
+  const s = await setup({ resyncMs: 300 });
+  await s.keys("enter");
+  await s.until((x) => x.includes("8qcK address"));
+  // telegram got it, the live push didn't arrive
+  s.src.messages["-100"]!.push({ id: 99, date: now, out: false, senderId: "11", sender: "mnk", text: "missed by the push" });
+  s.src.chats[0]!.last = { text: "missed by the push", out: false, date: now };
+  await s.until((x) => x.includes("missed by the push"), 3000);
 });
 
 describe("review regressions", () => {

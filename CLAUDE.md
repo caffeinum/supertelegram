@@ -41,6 +41,10 @@ drive it through a real tty with `expect`. send keystrokes separately with a pau
 - expect harnesses must not hardcode the active account in prompts (aleks switches it).
 - scrolling: opentui frame callbacks run before layout; anything reading positions (scrolloff, prepend anchoring, half-page) runs as a post-process fn (`useCursorScroll` in views.tsx).
 - account switching: effects that call telegram wait for an in-flight switch (`switching` in app.tsx), so a warmed account shown early can't send as the old one.
+- opentui's renderer sets `global.window = {}`; gramjs decides browser-vs-node once when `telegram/platform` first loads. `src/tui/index.tsx` imports `telegram/platform` first — never move it (0.13.0 shipped offline). tests/platform.test.ts guards it.
+- live smoke checks must prove connectivity (a live message arriving), not just that chats are on screen — the cached list draws even when offline.
+- live updates get lost sometimes (gramjs catchUp is a no-op; 3/8 probes on startup): the app resyncs list + open chat every 30s and on terminal focus.
+- the tui sends console output to `~/.supertelegram/tui.log` (opentui's console overlay is off).
 - startup: bare `telegram` (tty) imports only the tui — no cli, no gramjs — and draws from `~/.supertelegram/cache/<account>.json`; `LazySource` loads gramjs + connects behind the first frame (~0.45–0.5s to a full frame vs ~0.95s). keep gramjs imports out of the tui's first-frame modules; `src/client/lifecycle.ts` holds the flags run.ts needs without gramjs.
 - folders: `GetDialogFilters` peers can be InputPeerChat, which gramjs's getPeerId rejects — use `inputPeerId`. folder-only chats come from `GetPeerDialogs`, which is rate-limited (back-to-back batches drew a ~10s flood wait): loaded in the background, spaced 2s. gramjs's Dialog constructor crashes on a chat with no top message.
 - downloads must keep the file extension (`defaultFileName`), or `open` hands a jpeg to TextEdit.

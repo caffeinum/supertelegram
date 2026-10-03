@@ -1,5 +1,5 @@
 import { decodePasteBytes } from "@opentui/core";
-import { useKeyboard, usePaste, useTerminalDimensions } from "@opentui/react";
+import { useFocus, useKeyboard, usePaste, useTerminalDimensions } from "@opentui/react";
 import { existsSync, statSync } from "node:fs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { copyText, pastedPath, readClipboardImage } from "./clipboard";
@@ -16,6 +16,7 @@ const CHATS = 200;
 type Step = (s: State) => [State, Effect[]];
 
 export interface AppProps {
+  resyncMs?: number;
   source: DataSource;
   initial: State;
   onQuit: () => void;
@@ -26,7 +27,11 @@ export interface AppProps {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persistPool = () => {}, openFile }: AppProps) {
+// live updates can be missed (gramjs's catchUp is a no-op; ~3 of 8 live probes on startup were lost),
+// so the list and the open chat are also refreshed on a slow timer and whenever the terminal regains focus
+const RESYNC_MS = 30_000;
+
+export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persistPool = () => {}, openFile, resyncMs = RESYNC_MS }: AppProps) {
   const [state, setState] = useState(initial);
   const ref = useRef(initial);
   const { width: cols, height: rows } = useTerminalDimensions();
@@ -214,6 +219,12 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
     void exec({ type: "loadChats" });
     return off;
   }, [source, act, exec]);
+
+  useEffect(() => {
+    const t = setInterval(() => act({ type: "resync" }), resyncMs);
+    return () => clearInterval(t);
+  }, [act, resyncMs]);
+  useFocus(() => act({ type: "resync" }));
 
   useKeyboard((k) => runRef.current((s) => handleKey(s, k as Key)));
 

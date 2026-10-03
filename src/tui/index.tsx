@@ -1,4 +1,12 @@
+// must stay first: gramjs decides "browser or node" once, when telegram/platform is first loaded, by checking
+// `typeof window` — and opentui's renderer sets global.window = {}. loaded after it, gramjs thinks it's in a
+// browser and crashes on window.location (0.13.0 shipped offline because of this)
+import "telegram/platform";
 import { createCliRenderer } from "@opentui/core";
+import { appendFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { inspect } from "node:util";
 import { createRoot } from "@opentui/react";
 import { Component, type ReactNode } from "react";
 import { App } from "./app";
@@ -8,6 +16,18 @@ import { LazySource } from "./lazy-source";
 import { getCurrentAccount, listAccounts, migrateLegacyIfNeeded } from "../config/accounts";
 import { initialState, visibleChats } from "./state";
 import type { DataSource } from "./types";
+
+const LOG = join(homedir(), ".supertelegram", "tui.log");
+
+function redirectConsole(): () => void {
+  const saved = { log: console.log, info: console.info, warn: console.warn, error: console.error, debug: console.debug };
+  const write = (level: string) => (...args: unknown[]) => {
+    const line = args.map((a) => (a instanceof Error ? a.stack ?? a.message : typeof a === "string" ? a : inspect(a))).join(" ");
+    appendFileSync(LOG, `${new Date().toISOString()} ${level} ${line}\n`, { mode: 0o600 });
+  };
+  Object.assign(console, { log: write("log"), info: write("info"), warn: write("warn"), error: write("error"), debug: write("debug") });
+  return () => Object.assign(console, saved);
+}
 
 function lazySource(account: string | undefined): DataSource {
   migrateLegacyIfNeeded();
@@ -43,7 +63,9 @@ export async function runTui(source?: DataSource, account?: string): Promise<voi
     Object.assign(initial, { chats: cached.chats, folders: cached.folders, chatsLoaded: true });
     initial.listSel = visibleChats(initial)[0]?.id;
   }
-  const renderer = await createCliRenderer({ exitOnCtrlC: false });
+  // library chatter (gramjs logs, warnings) goes to a file: printing would draw over the ui
+  const restoreConsole = redirectConsole();
+  const renderer = await createCliRenderer({ exitOnCtrlC: false, consoleMode: "disabled", openConsoleOnError: false });
   let crashed: unknown;
   try {
     await new Promise<void>((resolve) => {
@@ -60,6 +82,7 @@ export async function runTui(source?: DataSource, account?: string): Promise<voi
     });
   } finally {
     renderer.destroy();
+    restoreConsole();
     await src.close();
   }
   if (crashed) throw crashed;

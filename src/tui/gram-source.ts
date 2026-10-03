@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Api, utils, type TelegramClient } from "telegram";
 import { NewMessage, type NewMessageEvent } from "telegram/events";
 import { Raw } from "telegram/events/Raw";
+import { isBrowser as platformIsBrowser } from "telegram/platform";
 import { UpdateConnectionState } from "telegram/network";
 import type { Dialog } from "telegram/tl/custom/dialog";
 import { activeAccount, fetchDialogs, getClient, getClientFor, resolveIn, sessionOverride, setKeepAlive, setSessionPath, shutdown, type Entity } from "../client/telegram";
@@ -62,7 +63,7 @@ function toSummary(d: Dialog, me: string): ChatSummary | undefined {
   const self = d.entity instanceof Api.User && Boolean(d.entity.self);
   return {
     id: d.id.toString(),
-    title: self ? "Saved Messages" : (d.title ?? displayName(d.entity)),
+    title: self ? "Saved Messages" : d.title || displayName(d.entity),
     self,
     contact: d.entity instanceof Api.User ? Boolean(d.entity.contact) : undefined,
     archived: d.archived || d.folderId === 1,
@@ -222,6 +223,9 @@ export class GramSource implements DataSource {
 
   // returns at once; the connection lands on `ready`, and every telegram call waits for it
   static start(account?: string): GramSource {
+    if (platformIsBrowser) {
+      throw new Error("gramjs was loaded after the ui renderer and thinks it runs in a browser — import telegram/platform before creating the renderer");
+    }
     setKeepAlive(true);
     const s = new GramSource();
     if (account) setSessionPath(accountSessionPath(account), account);
