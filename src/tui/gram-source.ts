@@ -12,6 +12,7 @@ import { accountSessionPath, listAccounts } from "../config/accounts";
 import { chatType, displayName, mediaLabel, peerId, username } from "../cli/format";
 import { CliError } from "../cli/errors";
 import { defaultFileName } from "../cli/chat";
+import { transcribe } from "../client/transcribe";
 import type { ChatPool, ChatSummary, DataSource, Folder, Msg, SearchHit, SendOpts, SourceEvent } from "./types";
 import { Dialog as TgDialog } from "telegram/tl/custom/dialog";
 import { ALL_CHATS } from "./folders";
@@ -28,6 +29,11 @@ const URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
 function linksOf(m: TgMessage): string[] | undefined {
   if (m instanceof Api.MessageService) return undefined;
   const found = new Set<string>(m.message.match(URL_RE) ?? []);
+  // a location opens in maps; a link preview opens its page
+  const media = m.media;
+  const geo = media instanceof Api.MessageMediaGeo || media instanceof Api.MessageMediaGeoLive || media instanceof Api.MessageMediaVenue ? media.geo : undefined;
+  if (geo instanceof Api.GeoPoint) found.add(`https://maps.apple.com/?ll=${geo.lat},${geo.long}`);
+  if (media instanceof Api.MessageMediaWebPage && media.webpage instanceof Api.WebPage) found.add(media.webpage.url);
   for (const e of m.entities ?? []) {
     if (e instanceof Api.MessageEntityTextUrl) found.add(e.url);
     if (e instanceof Api.MessageEntityUrl) {
@@ -205,6 +211,7 @@ async function loadExtras(client: TelegramClient, me: string, entities: Map<stri
 
 const EXTRAS_GAP_MS = 2000;
 
+
 export class GramSource implements DataSource {
   private client!: TelegramClient;
   private me = "";
@@ -329,6 +336,11 @@ export class GramSource implements DataSource {
     return toMsg(sent, undefined, this.me);
   }
 
+  async forward(fromChatId: string, msgIds: number[], toChatId: string) {
+    await this.ready;
+    await this.client.forwardMessages(await this.entity(toChatId), { messages: msgIds, fromPeer: await this.entity(fromChatId) });
+  }
+
   async markRead(chatId: string) {
     await this.ready;
     await this.client.markAsRead(await this.entity(chatId));
@@ -386,6 +398,26 @@ export class GramSource implements DataSource {
     const path = await this.client.downloadMedia(m, { outputFile: target });
     if (typeof path !== "string") throw new Error(`download of #${msgId} produced no file`);
     return path;
+  }
+
+  async thumbnail(chatId: string, msgId: number): Promise<string> {
+    await this.ready;
+    const e = await this.entity(chatId);
+    const [m] = (await this.client.getMessages(e, { ids: msgId })) as (Api.Message | undefined)[];
+    const doc = m?.media instanceof Api.MessageMediaDocument && m.media.document instanceof Api.Document ? m.media.document : undefined;
+    const sizes = doc?.thumbs ?? [];
+    if (!m || !sizes.length) throw new Error(`message #${msgId} has no preview frame — press o to play it`);
+    const dir = join(tmpdir(), "supertelegram");
+    mkdirSync(dir, { recursive: true });
+    const target = join(dir, `${chatId}-${msgId}-thumb.jpg`);
+    const path = await this.client.downloadMedia(m, { outputFile: target, thumb: sizes.length - 1 });
+    if (typeof path !== "string") throw new Error(`message #${msgId}: preview download produced no file`);
+    return path;
+  }
+
+  async transcribe(chatId: string, msgId: number): Promise<string> {
+    await this.ready;
+    return transcribe(this.client, await this.entity(chatId), msgId, this.label || this.account());
   }
 
   subscribe(cb: (e: SourceEvent) => void): () => void {

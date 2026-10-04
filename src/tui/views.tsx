@@ -98,8 +98,9 @@ function useCursorScroll(
 
 export function Header({ s, cols }: { s: State; cols: number }) {
   const chat = s.view === "chat" && s.open ? chatById(s, s.open.chatId) : undefined;
-  const where =
-    s.view === "chat" && chat
+  const where = s.forward
+    ? `forward #${s.forward.msgIds.join(", #")} to… (enter picks · / filters · esc cancels)`
+    : s.view === "chat" && chat
       ? `← ${chat.title} · ${chat.kind} · ${chat.id}`
       : s.view === "results" && s.results
         ? `search "${s.results.query}"${s.results.scope ? ` in ${chatById(s, s.results.scope)?.title ?? "chat"}` : ""}`
@@ -134,7 +135,7 @@ function preview(c: ChatSummary): string {
 
 // telegram folders as tabs; the badge counts unread (unmuted) chats like telegram does
 export function FolderTabs({ s, cols }: { s: State; cols: number }) {
-  if (s.folders.length < 2) return null;
+  if (s.folders.length < 2 || s.forward) return null;
   const current = currentFolder(s).id;
   let used = 1;
   return (
@@ -201,6 +202,33 @@ export function ChatList({ s, cols, onPick }: { s: State; cols: number; rows: nu
   );
 }
 
+const INLINE_ROWS = 14;
+
+// an image shown inside the transcript, under its message (v toggles it)
+function InlineImage({ s, m }: { s: State; m: Msg }) {
+  const it = s.open ? s.inline[`${s.account}:${s.open.chatId}:${m.id}`] : undefined;
+  if (!it) return null;
+  if (it.error) return <text fg={C.red}>{`  ${it.error}`}</text>;
+  if (!it.path) return <text fg={C.gray} attributes={DIM}>{"  loading image…"}</text>;
+  return (
+    <box height={INLINE_ROWS} flexDirection="row" paddingLeft={2}>
+      <image key={`${it.path}:${s.imageProtocol}`} source={it.path} fit="fit" protocol={s.imageProtocol} height={INLINE_ROWS} width={INLINE_ROWS * 4} />
+    </box>
+  );
+}
+
+function Transcript({ s, m }: { s: State; m: Msg }) {
+  const t = s.open ? s.transcripts[`${s.account}:${s.open.chatId}:${m.id}`] : undefined;
+  if (!t) return null;
+  if (t.error) return <text fg={C.red}>{`  ✎ ${t.error}`}</text>;
+  if (t.text === undefined) return <text fg={C.gray} attributes={DIM}>{"  ✎ transcribing…"}</text>;
+  return (
+    <text fg={C.fg} attributes={TextAttributes.ITALIC} wrapMode="word">
+      {`  ✎ ${t.text || "(no speech)"}`}
+    </text>
+  );
+}
+
 function MessageView({ m, prev, sel, s, replied }: { m: Msg; prev?: Msg; sel: boolean; s: State; replied?: Msg }) {
   const gutter = (
     <text fg={C.accent} width={1}>
@@ -231,6 +259,8 @@ function MessageView({ m, prev, sel, s, replied }: { m: Msg; prev?: Msg; sel: bo
             <box flexGrow={1} flexDirection="column">
               {body ? <text fg={C.fg} wrapMode="word">{body}</text> : null}
               {media && <text fg={C.blue}>{media}</text>}
+              <InlineImage s={s} m={m} />
+              <Transcript s={s} m={m} />
             </box>
             <text fg={C.gray} attributes={DIM}>{` ${meta}`}</text>
           </box>
@@ -268,6 +298,8 @@ function MessageView({ m, prev, sel, s, replied }: { m: Msg; prev?: Msg; sel: bo
               </text>
             ) : null}
             {media && <text fg={C.blue}>{media}</text>}
+            <InlineImage s={s} m={m} />
+            <Transcript s={s} m={m} />
           </box>
           {grouped && (
             <text fg={C.gray} attributes={DIM}>
@@ -478,6 +510,7 @@ export function Help({ s, cols }: { s: State; cols: number }) {
 }
 
 const HINTS: Record<string, string> = {
+  forward: "pick a chat to forward to · j/k move · / filter · enter forward · esc cancel",
   list: "j/k move · enter open · / filter · gu next unread · gs search · ctrl-k commands",
   chat: "j/k select · i write · r reply · o open media · / search · h back · ctrl-k commands",
   results: "j/k move · enter open in chat · esc back",
@@ -494,7 +527,9 @@ export function StatusBar({ s, cols }: { s: State; cols: number }) {
       ? `/${s.filter}  ·  ${HINTS.filter}`
       : s.mode === "insert"
         ? `sending as ${s.accountLabel || s.account} · ${HINTS.insert}`
-        : HINTS[s.view];
+        : s.forward && s.view === "list"
+          ? HINTS.forward
+          : HINTS[s.view];
   return (
     <box height={1} flexDirection="row">
       <text attributes={BOLD} fg={C.bg} bg={s.mode === "insert" ? C.green : C.accent}>{` ${mode} `}</text>
@@ -535,7 +570,7 @@ export function Viewer({ s, cols, rows }: { s: State; cols: number; rows: number
           <text fg={C.gray}>{" loading image…"}</text>
         )}
       </box>
-      <text fg={C.gray}>{fit(` esc close · j/k next/prev image · o open in another app · p drawing: ${s.imageProtocol} (blank? press p)`, cols)}</text>
+      <text fg={C.gray}>{fit(` ${v.video ? "▶ video preview — o to play · " : ""}esc close · j/k next/prev · o open in another app · p drawing: ${s.imageProtocol} (blank? press p)`, cols)}</text>
     </box>
   );
 }

@@ -47,6 +47,10 @@ drive it through a real tty with `expect`. send keystrokes separately with a pau
 - the tui sends console output to `~/.supertelegram/tui.log` (opentui's console overlay is off).
 - startup: bare `telegram` (tty) imports only the tui — no cli, no gramjs — and draws from `~/.supertelegram/cache/<account>.json`; `LazySource` loads gramjs + connects behind the first frame (~0.45–0.5s to a full frame vs ~0.95s). keep gramjs imports out of the tui's first-frame modules; `src/client/lifecycle.ts` holds the flags run.ts needs without gramjs.
 - folders: `GetDialogFilters` peers can be InputPeerChat, which gramjs's getPeerId rejects — use `inputPeerId`. folder-only chats come from `GetPeerDialogs`, which is rate-limited (back-to-back batches drew a ~10s flood wait): loaded in the background, spaced 2s. gramjs's Dialog constructor crashes on a chat with no top message.
+- images: test with tests/fixtures/gradient.png — a hand-made 1×1 png decoded to nothing and image tests passed without drawing. assert pixels (`drawsPixels`).
+- kitty graphics drew blank in aleks's cmux; blocks is the default image protocol.
+- test files import `telegram/platform` first (renderers set global.window; gramjs loaded after them takes the browser path).
+- transcription: messages.TranscribeAudio answers pending first; poll until done (src/client/transcribe.ts). premium only (caffeinum has it, default doesn't). never print transcripts while testing — they're aleks's private messages.
 - downloads must keep the file extension (`defaultFileName`), or `open` hands a jpeg to TextEdit.
 - real terminals send DEL (0x7f) for backspace; the opentui mock sends \b. classify keys by name before treating a byte as text.
 - colors: only `C.fg`/`C.bg` (terminal defaults) and palette indexes — opentui's implicit text color is white rgb, invisible on light themes (aleks runs a light cmux theme). the theme-safe test fails on any rgb color or inverse video.

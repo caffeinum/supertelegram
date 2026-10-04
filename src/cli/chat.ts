@@ -15,6 +15,7 @@ import {
 } from "../client/telegram";
 import { listAccounts, accountSessionPath } from "../config/accounts";
 import { CliError, EXIT } from "./errors";
+import { transcribe } from "../client/transcribe";
 import { chatType, displayName, isoDate, label, mediaLabel, peerId, username } from "./format";
 
 export interface Out {
@@ -350,5 +351,13 @@ export async function downloadMedia(chat: string, messageId: number, outputPath:
   const path = await download(msg, target);
   if (!path) throw new CliError(`download of #${messageId} produced no file`);
   console.log(`saved to: ${path}`);
+  await disconnect();
+}
+
+export async function transcribeMessage(chat: string, msgId: number, out: Out) {
+  const c = await requireLogin();
+  const entity = await resolveOrHint(chat, "transcribe", out);
+  const text = await transcribe(c, entity, msgId, activeAccount());
+  emit(out, { chat_id: peerId(entity), msg_id: msgId, account: activeAccount(), text }, [text || "(no speech)"]);
   await disconnect();
 }

@@ -69,6 +69,9 @@ export class FakeSource implements DataSource {
     (this.messages[chatId] ??= []).push(msg);
     return msg;
   }
+  async forward(fromChatId: string, msgIds: number[], toChatId: string) {
+    this.calls.push({ method: "forward", args: [fromChatId, msgIds, toChatId, this.accountName] });
+  }
   async markRead(chatId: string) {
     this.calls.push({ method: "markRead", args: [chatId] });
   }
@@ -89,6 +92,18 @@ export class FakeSource implements DataSource {
     this.calls.push({ method: "download", args: [chatId, msgId] });
     if (this.imagePath) return this.imagePath;
     throw new Error("no such file in the fake");
+  }
+  transcripts: Record<string, string> = {};
+  async thumbnail(chatId: string, msgId: number) {
+    this.calls.push({ method: "thumbnail", args: [chatId, msgId] });
+    if (this.imagePath) return this.imagePath;
+    throw new Error("no preview in the fake");
+  }
+  async transcribe(chatId: string, msgId: number) {
+    this.calls.push({ method: "transcribe", args: [chatId, msgId] });
+    const t = this.transcripts[`${chatId}:${msgId}`];
+    if (t === undefined) throw new Error("transcription needs telegram premium on @fake");
+    return t;
   }
   subscribe(cb: (e: SourceEvent) => void) {
     this.listeners.add(cb);

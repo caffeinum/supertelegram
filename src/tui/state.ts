@@ -45,8 +45,11 @@ export interface State {
   help: boolean;
   pending: string; // first key of a sequence: "g" or "Z"
   scrollReq?: { seq: number; dir: 1 | -1 }; // half-page scroll, carried out by the visible view
-  viewer?: { chatId: string; msgId: number; path?: string; error?: string }; // inline image view
+  forward?: { fromChatId: string; msgIds: number[] }; // picking where to forward: the list shows every chat by recency
+  viewer?: { chatId: string; msgId: number; path?: string; error?: string; video?: boolean }; // inline image (or video preview) view
   imageProtocol: ImageProtocol;
+  transcripts: Record<string, { text?: string; error?: string }>; // `${account}:${chatId}:${msgId}`; absent text+error = working
+  inline: Record<string, { path?: string; error?: string }>; // images shown inside the chat, same keys
   accountCache: Record<string, { label: string; chats: ChatSummary[]; folders: Folder[] }>; // other accounts, warmed in the background
   warmed: boolean;
   extrasFor?: string; // the account whose folder-only chats have been requested
@@ -66,11 +69,14 @@ export type Effect =
   | { type: "jumpTo"; chatId: string; msgId: number }
   | { type: "send"; key: string; chatId: string; draft: Draft }
   | { type: "markRead"; chatId: string }
+  | { type: "forward"; fromChatId: string; msgIds: number[]; toChatId: string; toTitle: string }
   | { type: "markUnread"; chatId: string }
   | { type: "switchAccount"; name: string }
   | { type: "search"; query: string; chatId?: string }
   | { type: "openMedia"; chatId: string; msgId: number }
-  | { type: "viewImage"; chatId: string; msgId: number }
+  | { type: "viewImage"; chatId: string; msgId: number; video: boolean }
+  | { type: "transcribe"; key: string; chatId: string; msgId: number }
+  | { type: "loadInline"; key: string; chatId: string; msgId: number; video: boolean }
   | { type: "openUrl"; url: string }
   | { type: "copy"; text: string; what: string }
   | { type: "pasteImage"; key: string; chatId: string }
@@ -93,7 +99,9 @@ export function initialState(account: string, accounts: string[], drafts: Record
     filter: "",
     drafts,
     history: {},
-    imageProtocol: "auto",
+    imageProtocol: "blocks", // the one that draws everywhere (kitty drew blank in cmux); p in the viewer changes it
+    transcripts: {},
+    inline: {},
     accountCache: {},
     warmed: false,
     outbox: {},
@@ -109,6 +117,20 @@ export function initialState(account: string, accounts: string[], drafts: Record
 export function isImage(m: Msg | undefined): boolean {
   if (!m?.media) return false;
   return m.media === "photo" || m.media === "sticker" || /^file: .*\.(png|jpe?g|gif|webp|heic|bmp|tiff?)$/i.test(m.media);
+}
+
+// media with a file behind it (as opposed to a link preview, location, poll, contact…)
+export function hasFile(m: Msg | undefined): boolean {
+  return Boolean(m?.media && !/^(link|location|poll|contact|dice|media$)/.test(m.media));
+}
+
+export function isVideo(m: Msg | undefined): boolean {
+  return Boolean(m?.media && /^video\b/.test(m.media) && !/^video note\b/.test(m.media));
+}
+
+// voice messages and round video notes: what telegram can transcribe
+export function isSpeech(m: Msg | undefined): boolean {
+  return Boolean(m?.media && /^(voice|video note)\b/.test(m.media));
 }
 
 export const draftKey = (s: State, chatId: string) => `${s.account}:${chatId}`;
@@ -130,9 +152,14 @@ export function currentFolder(s: State): Folder {
   return s.folders.find((f) => f.id === s.folderId) ?? s.folders[0] ?? ALL_CHATS;
 }
 
-// the list on screen: the current folder, narrowed by a / filter (which searches every chat, like telegram)
+// the list on screen: the current folder, narrowed by a / filter (which searches every chat, like telegram).
+// while picking a forward target: every chat, most recent first
 export function visibleChats(s: State): ChatSummary[] {
   const q = s.filter.toLowerCase();
+  if (s.forward) {
+    const recent = s.chats.filter((c) => !c.archived).sort((a, b) => (b.last?.date ?? 0) - (a.last?.date ?? 0));
+    return q ? recent.filter((c) => c.title.toLowerCase().includes(q) || c.username?.toLowerCase().includes(q)) : recent;
+  }
   if (!q) return folderChats(s.chats, currentFolder(s));
   return s.chats.filter((c) => c.title.toLowerCase().includes(q) || c.username?.toLowerCase().includes(q));
 }
@@ -155,6 +182,8 @@ export type Action =
   | { type: "pick"; id: string } // the view picked the row under the cursor after scrolling
   | { type: "resync" } // backstop for missed live updates (gramjs has no catch-up): refresh list + open chat
   | { type: "viewerReady"; chatId: string; msgId: number; path?: string; error?: string }
+  | { type: "transcribed"; key: string; text?: string; error?: string }
+  | { type: "inlineReady"; key: string; path?: string; error?: string }
   | { type: "event"; event: SourceEvent };
 
 export const PREFETCH_TOP = 10;
@@ -338,6 +367,12 @@ export function apply(s: State, a: Action): [State, Effect[]] {
     }
     case "toast":
       return [{ ...s, toast: { text: a.text, error: Boolean(a.error) } }, []];
+    case "inlineReady":
+      // only if it wasn't collapsed while loading
+      if (!s.inline[a.key]) return [s, []];
+      return [{ ...s, inline: { ...s.inline, [a.key]: { path: a.path, error: a.error } } }, []];
+    case "transcribed":
+      return [{ ...s, transcripts: { ...s.transcripts, [a.key]: { text: a.text, error: a.error } } }, []];
     case "viewerReady":
       // only if the user is still looking at that image
       if (!s.viewer || s.viewer.chatId !== a.chatId || s.viewer.msgId !== a.msgId) return [s, []];

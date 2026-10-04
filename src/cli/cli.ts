@@ -1,6 +1,6 @@
 import { explainConnectionError } from "../client/wss";
 import { login, config, accounts, switchAccount, logout, whoami } from "./commands";
-import { send, sendFile, reply, read, list, info, unread, downloadMedia, type Out } from "./chat";
+import { send, sendFile, reply, read, list, info, unread, downloadMedia, transcribeMessage, type Out } from "./chat";
 import { setVerbose, setSessionPath } from "../client/telegram";
 import { migrateLegacyIfNeeded, accountSessionPath } from "../config/accounts";
 import { parse, findCommand, intFlag, closest, type FlagSpec, type Parsed } from "./args";
@@ -150,6 +150,14 @@ export const COMMANDS: Command[] = [
     examples: ["download @username 12345 ./photo.jpg"],
     min: 2,
     run: (p, out) => downloadMedia(p.positionals[0]!, intFlag(p.positionals[1], "msg-id", 0, "download"), p.positionals[2], out),
+  },
+  {
+    name: "transcribe",
+    args: "<chat> <msg-id>",
+    summary: "speech-to-text for a voice message or video note (telegram premium, or its free trials)",
+    examples: ["transcribe @username 2745950", "transcribe -1001234 512 --json"],
+    min: 2,
+    run: (p, out) => transcribeMessage(p.positionals[0]!, intFlag(p.positionals[1], "msg-id", 0, "transcribe"), out),
   },
   {
     name: "unread",

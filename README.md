@@ -53,7 +53,7 @@ it's modal like vim, so letters never land in a message by accident:
 | move / scroll | `j` `k` (the view scrolls only near the edge) · `ctrl-d` `ctrl-u` half a page · `gg` (loads older) `G` |
 | open / back | `enter` · `h` / `esc` |
 | write | `i` (or `enter` in a chat) · `enter` sends · `alt-enter` newline · `esc` keeps the draft |
-| reply / media / copy | `r` on a selected message · `v` view image inline (j/k through the chat's media) · `o` open in another app · `gx` open link · `y` copy text |
+| reply / media / copy | `r` reply · `f` forward (pick a chat, newest first) · `v` show image / video preview inline · `V` full screen · `t` transcribe a voice message or video note · `o` open (file → its app, link → browser, location → maps) · `gx` open link · `y` copy text |
 | image | `ctrl-v` pastes the clipboard image (or drag a file in) as an attachment chip |
 | go to | `gc` chat… · `gs` search everywhere · `gu` next unread · `gi` chat list · `gm` saved messages · `ga` account |
 | folders | `tab` / `shift-tab` next/prev folder · `gf` folder… — opens on your default folder (the first in telegram's order) |
@@ -65,7 +65,9 @@ it's modal like vim, so letters never land in a message by accident:
 - your telegram folders show as tabs with unread badges; chats a folder names that are older than your
   recent list fill in in the background
 - chats open instantly: the top of the list and the chats around your cursor are preloaded (never marked read), and so are your other accounts, so `ga` is instant too
-- images render inline with the kitty graphics protocol (ghostty, cmux, kitty, wezterm) and as block characters elsewhere
+- images draw with unicode blocks by default (works everywhere); in the full-screen viewer `p` switches to kitty / sixel
+  if your terminal draws those (`telegram config set images kitty`)
+- transcription uses telegram's own speech-to-text: telegram premium, or the few free trials it gives otherwise
 - opening a chat marks it read; moving through the list never does
 - a draft belongs to its chat: switching chats, incoming messages or reordering can't send it elsewhere
 - a failed send puts the text back in the prompt and is never retried
@@ -123,6 +125,7 @@ telegram send me -- "- starts with a dash"
 
 telegram reply "John" "hey back!"       # send + mark the chat read
 telegram unread -n 50                   # unread messages as json
+telegram transcribe @username 2745950   # speech-to-text for a voice message / video note
 ```
 
 every command takes `--json` for machine-readable output, and `--help` for its own

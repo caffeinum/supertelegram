@@ -1,4 +1,5 @@
 import { Api } from "telegram";
+import { duration } from "./duration";
 import { utils } from "telegram";
 import type { Entity } from "../client/telegram";
 
@@ -59,9 +60,11 @@ export function mediaLabel(msg: Api.Message): string | undefined {
     if (attrs.some((a) => a instanceof Api.DocumentAttributeSticker)) return "sticker";
     if (attrs.some((a) => a instanceof Api.DocumentAttributeAnimated)) return "gif";
     const audio = attrs.find((a): a is Api.DocumentAttributeAudio => a instanceof Api.DocumentAttributeAudio);
-    if (audio?.voice) return "voice";
-    if (attrs.some((a) => a instanceof Api.DocumentAttributeVideo)) return named("video");
-    if (audio) return named("audio");
+    const video = attrs.find((a): a is Api.DocumentAttributeVideo => a instanceof Api.DocumentAttributeVideo);
+    if (audio?.voice) return `voice ${duration(audio.duration)}`;
+    if (video?.roundMessage) return `video note ${duration(video.duration)}`;
+    if (video) return named(`video ${duration(video.duration)}`);
+    if (audio) return named(`audio ${duration(audio.duration)}`);
     return named("file");
   }
   return "media";

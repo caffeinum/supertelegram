@@ -82,10 +82,14 @@ export interface DataSource {
   // chronological (oldest first). `before` pages back; `around` returns a page ending at that id
   history(chatId: string, opts: { limit: number; before?: number }): Promise<Msg[]>;
   send(chatId: string, text: string, opts: SendOpts): Promise<Msg>;
+  forward(fromChatId: string, msgIds: number[], toChatId: string): Promise<void>;
   markRead(chatId: string): Promise<void>;
   markUnread(chatId: string): Promise<void>;
   search(query: string, chatId?: string): Promise<SearchHit[]>;
   download(chatId: string, msgId: number): Promise<string>;
+  thumbnail(chatId: string, msgId: number): Promise<string>; // a video's preview frame, as an image file
+  // telegram's own speech-to-text for voice messages and video notes (premium, or a few free trials)
+  transcribe(chatId: string, msgId: number): Promise<string>;
   subscribe(cb: (e: SourceEvent) => void): () => void;
   close(): Promise<void>;
 }

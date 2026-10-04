@@ -1,3 +1,5 @@
+// production loads gramjs's platform check before any renderer sets global.window; tests must too
+import "telegram/platform";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(20_000);
@@ -36,6 +38,11 @@ function msgs(): Record<string, Msg[]> {
 
 let teardown: (() => void) | undefined;
 type Setup = { t: Awaited<ReturnType<typeof testRender>> };
+
+// a real 64×32 image: hand-made 1×1 pngs decoded to nothing, so image tests passed without drawing
+const FIXTURE_PNG = new URL("./fixtures/gradient.png", import.meta.url).pathname;
+const drawsPixels = (t: Awaited<ReturnType<typeof testRender>>) =>
+  t.captureSpans().lines.some((l) => l.spans.some((sp) => sp.bg.intent === "rgb" && sp.bg.a > 0 && sp.text.includes("▀")));
 
 // react's act() warnings are noise here: the renderer flushes on its own
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
@@ -390,6 +397,22 @@ describe("scrolling like vim", () => {
 });
 
 describe("links, images, filter, accounts", () => {
+  test("o on a link preview opens the link; on a location opens maps", async () => {
+    const m = msgs();
+    m["-100"]!.push(
+      { id: 5, date: now - 20, out: false, senderId: "11", sender: "mnk", text: "I mean…", media: "link: X (formerly Twitter)", urls: ["https://x.com/paw_lean/status/1"] },
+      { id: 6, date: now - 10, out: false, senderId: "11", sender: "mnk", text: "", media: "location", urls: ["https://maps.apple.com/?ll=37.7,-122.4"] }
+    );
+    const s = await setup({ messages: m });
+    await s.keys("enter");
+    await s.until((x) => x.includes("I mean"));
+    await s.keys("o");
+    await s.until(() => s.opened.includes("https://maps.apple.com/?ll=37.7,-122.4"));
+    await s.keys("k", "o");
+    await s.until(() => s.opened.includes("https://x.com/paw_lean/status/1"));
+    expect(s.src.calls.some((c) => c.method === "download")).toBe(false);
+  });
+
   test("gx opens the link in the selected message", async () => {
     const m = msgs();
     m["-100"]!.push({ id: 4, date: now, out: false, senderId: "11", sender: "mnk", text: "tx https://solscan.io/tx/abc", urls: ["https://solscan.io/tx/abc"] });
@@ -401,23 +424,23 @@ describe("links, images, filter, accounts", () => {
   });
 
   test("v shows the photo inline; esc closes it", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "st-img-"));
-    const png = join(dir, "p.png");
-    writeFileSync(png, Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc0000003010100c9fe92ef0000000049454e44ae426082", "hex"));
+    const png = FIXTURE_PNG;
     const s = await setup();
     s.src.imagePath = png;
     await s.keys("gc", "kate", "enter");
     await s.until((x) => x.includes("look at this"));
-    await s.keys("v");
-    await s.until((x) => x.includes("esc close") && !x.includes("loading image"));
+    await s.keys("v"); // inline, under the message
+    // drawn in the chat: the image's pixels appear while the transcript is still on screen
+    await s.until((f) => f.includes("look at this") && drawsPixels(s.t) && !f.includes("esc close"));
+    expect(s.src.calls.some((c) => c.method === "download")).toBe(true);
+    await s.keys("V"); // full screen
+    await s.until((x) => x.includes("esc close") && drawsPixels(s.t));
     await s.keys("esc");
     await s.until((x) => !x.includes("esc close") && x.includes("look at this"));
   });
 
   test("v refuses non-images (a location) and j/k step over them; p switches how images are drawn", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "st-img2-"));
-    const png = join(dir, "p.png");
-    writeFileSync(png, Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc0000003010100c9fe92ef0000000049454e44ae426082", "hex"));
+    const png = FIXTURE_PNG;
     const m = msgs();
     m["42"] = [
       { id: 20, date: now - 300, out: false, senderId: "42", sender: "Kate", text: "", media: "photo" },
@@ -432,13 +455,42 @@ describe("links, images, filter, accounts", () => {
     await s.keys("v");
     await s.until((x) => x.includes("not an image"));
     expect(s.frame()).not.toContain("esc close");
-    await s.keys("j", "v"); // #22
+    await s.keys("j", "V"); // #22
     await s.until((x) => x.includes("#22") && x.includes("esc close"));
     await s.keys("k"); // steps over the location to #20
     await s.until((x) => x.includes("#20") && x.includes("esc close"));
-    await s.keys("p");
-    await s.until((x) => x.includes("drawing: kitty"));
-    expect(s.settings).toEqual([["images", "kitty"]]);
+    await s.keys("p"); // blocks is the default; next is auto
+    await s.until((x) => x.includes("drawing: auto"));
+    expect(s.settings).toEqual([["images", "auto"]]);
+  });
+
+  test("t transcribes a voice message under it; a video shows its preview with a play hint", async () => {
+    const png = FIXTURE_PNG;
+    const m = msgs();
+    m["42"] = [
+      { id: 30, date: now - 300, out: false, senderId: "42", sender: "Kate", text: "", media: "voice 0:17" },
+      { id: 31, date: now - 200, out: false, senderId: "42", sender: "Kate", text: "", media: "video note 0:09" },
+      { id: 32, date: now - 100, out: false, senderId: "42", sender: "Kate", text: "clip", media: "video 1:23: trip.mp4" },
+    ];
+    const s = await setup({ messages: m });
+    s.src.imagePath = png;
+    s.src.transcripts["42:30"] = "see you at seven near the station";
+    await s.keys("gc", "kate", "enter");
+    await s.until((x) => x.includes("trip.mp4"));
+    await s.keys("k", "k", "t"); // the voice message
+    await s.until((x) => x.includes("✎ see you at seven near the station"));
+    await s.keys("j", "t"); // the video note has no transcript in the fake → error shown, not invented
+    await s.until((x) => x.includes("✎ transcription needs telegram premium"));
+    await s.keys("j", "t"); // a plain video isn't speech
+    await s.until((x) => x.includes("select a voice message or video note"));
+    await s.keys("V");
+    await s.until((x) => x.includes("▶ video preview") && drawsPixels(s.t));
+    expect(s.src.calls.some((c) => c.method === "thumbnail" && c.args[1] === 32)).toBe(true);
+  });
+
+  test("durations read like a player", async () => {
+    const { duration } = await import("../src/cli/duration");
+    expect([duration(9), duration(16.8), duration(83), duration(3725)]).toEqual(["0:09", "0:17", "1:23", "1:02:05"]);
   });
 
   test("opening a chat from a filtered list resets the filter", async () => {
@@ -554,6 +606,25 @@ test("a message whose live update was lost still shows up on the next resync", a
   s.src.messages["-100"]!.push({ id: 99, date: now, out: false, senderId: "11", sender: "mnk", text: "missed by the push" });
   s.src.chats[0]!.last = { text: "missed by the push", out: false, date: now };
   await s.until((x) => x.includes("missed by the push"), 3000);
+});
+
+describe("forward", () => {
+  test("f picks a chat from a recency-sorted list and forwards there; esc cancels", async () => {
+    const s = await setup();
+    await s.keys("enter");
+    await s.until((x) => x.includes("8qcK address"));
+    await s.keys("f");
+    await s.until((x) => x.includes("forward #3 to…"));
+    const rows = s.frame().split("\n").filter((l) => /^[▌ ][●◌✎⌃ ] /.test(l)).map((l) => l.slice(3, 20).trim()).filter(Boolean);
+    expect(rows).toEqual(["Covers!", "Kate", "Saved Messages", "Noisy Group"]); // newest first
+    await s.keys("esc");
+    await s.until((x) => x.includes("← Covers!"));
+    expect(s.src.calls.some((c) => c.method === "forward")).toBe(false);
+    await s.keys("f", "/", "kat", "enter");
+    await s.until((x) => x.includes("forwarded to Kate"));
+    expect(s.src.calls.find((c) => c.method === "forward")?.args).toEqual(["-100", [3], "42", "default"]);
+    expect(s.frame()).toContain("← Covers!"); // back where you were
+  });
 });
 
 describe("review regressions", () => {

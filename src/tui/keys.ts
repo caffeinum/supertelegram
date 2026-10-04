@@ -1,7 +1,10 @@
 import * as ed from "./editor";
 import {
   IMAGE_PROTOCOLS,
+  hasFile,
   isImage,
+  isSpeech,
+  isVideo,
   uncached,
   currentFolder,
   chatById,
@@ -205,7 +208,8 @@ export function switchTo(s: State, name: string): Result {
 }
 
 function viewImage(s: State, chatId: string, msgId: number): Result {
-  return [{ ...s, viewer: { chatId, msgId } }, [{ type: "viewImage", chatId, msgId }]];
+  const video = isVideo(s.open?.messages.find((m) => m.id === msgId));
+  return [{ ...s, viewer: { chatId, msgId, video } }, [{ type: "viewImage", chatId, msgId, video }]];
 }
 
 // j/k in the viewer step through the chat's media
@@ -214,7 +218,7 @@ function stepImage(s: State, dir: 1 | -1): Result {
   const msgs = s.open?.chatId === v.chatId ? s.open.messages : [];
   const i = msgs.findIndex((m) => m.id === v.msgId);
   for (let j = i + dir; j >= 0 && j < msgs.length; j += dir) {
-    if (isImage(msgs[j])) {
+    if (isImage(msgs[j]) || isVideo(msgs[j])) {
       const [s2, fx] = viewImage(s, v.chatId, msgs[j]!.id);
       return [{ ...s2, open: s2.open && { ...s2.open, sel: msgs[j]!.id } }, fx];
     }
@@ -224,7 +228,7 @@ function stepImage(s: State, dir: 1 | -1): Result {
 
 function viewerKey(s: State, t: string): Result {
   const v = s.viewer!;
-  if (t === "escape" || t === "q" || t === "v" || t === "h") return [{ ...s, viewer: undefined }, []];
+  if (t === "escape" || t === "q" || t === "v" || t === "V" || t === "h") return [{ ...s, viewer: undefined }, []];
   if (t === "o") return [{ ...s, toast: { text: "opening…", error: false } }, [{ type: "openMedia", chatId: v.chatId, msgId: v.msgId }]];
   if (t === "p") {
     // terminals differ in what they draw: let the user pick, and remember it
@@ -311,13 +315,18 @@ export const COMMANDS: Command[] = [
   { id: "attach", title: "attach a file…", keys: [], views: ["chat"], run: palette("file") },
   {
     id: "open-media",
-    title: "open attachment",
+    title: "open attachment, link or location",
     keys: ["o"],
     views: ["chat"],
     run: (s) => {
       const m = selectedMsg(s);
-      if (!m?.media || !s.open) return toast(s, "the selected message has no attachment", true);
-      return [{ ...s, toast: { text: `downloading ${m.media}…`, error: false } }, [{ type: "openMedia", chatId: s.open.chatId, msgId: m.id }]];
+      if (!s.open || !m) return toast(s, "select a message first (j/k)", true);
+      // a file opens in its app; a link preview or a location has no file — open its link (maps for a location)
+      if (hasFile(m)) return [{ ...s, toast: { text: `downloading ${m.media}…`, error: false } }, [{ type: "openMedia", chatId: s.open.chatId, msgId: m.id }]];
+      const urls = m.urls ?? [];
+      if (urls.length === 1) return [{ ...s, toast: { text: `opening ${urls[0]}`, error: false } }, [{ type: "openUrl", url: urls[0]! }]];
+      if (urls.length > 1) return palette("links")(s);
+      return toast(s, "nothing to open in the selected message", true);
     },
   },
   {
@@ -333,15 +342,58 @@ export const COMMANDS: Command[] = [
     },
   },
   {
-    id: "view-image",
-    title: "view image here (inline)",
+    id: "show-image",
+    title: "show image / video preview inline (again to hide)",
     keys: ["v"],
     views: ["chat"],
     run: (s) => {
       const m = selectedMsg(s);
       if (!s.open || !m?.media) return toast(s, "the selected message has no image", true);
-      if (!isImage(m)) return toast(s, `that's ${m.media}, not an image — o opens it in another app`, true);
+      if (!isImage(m) && !isVideo(m)) return toast(s, `that's ${m.media}, not an image — o opens it in another app`, true);
+      const key = `${s.account}:${s.open.chatId}:${m.id}`;
+      if (s.inline[key]) {
+        const inline = { ...s.inline };
+        delete inline[key];
+        return [{ ...s, inline }, []];
+      }
+      return [{ ...s, inline: { ...s.inline, [key]: {} } }, [{ type: "loadInline", key, chatId: s.open.chatId, msgId: m.id, video: isVideo(m) }]];
+    },
+  },
+  {
+    id: "view-image",
+    title: "view image full screen",
+    keys: ["V"],
+    views: ["chat"],
+    run: (s) => {
+      const m = selectedMsg(s);
+      if (!s.open || !m?.media) return toast(s, "the selected message has no image", true);
+      if (!isImage(m) && !isVideo(m)) return toast(s, `that's ${m.media}, not an image — o opens it in another app`, true);
       return viewImage(s, s.open.chatId, m.id);
+    },
+  },
+  {
+    id: "forward",
+    title: "forward the selected message…",
+    keys: ["f"],
+    views: ["chat"],
+    run: (s) => {
+      const m = selectedMsg(s);
+      if (!s.open || !m) return toast(s, "select a message to forward (j/k)", true);
+      const next = { ...s, view: "list" as const, mode: "normal" as const, filter: "", forward: { fromChatId: s.open.chatId, msgIds: [m.id] } };
+      return [{ ...next, listSel: visibleChats(next)[0]?.id }, []];
+    },
+  },
+  {
+    id: "transcribe",
+    title: "transcribe voice message / video note",
+    keys: ["t"],
+    views: ["chat"],
+    run: (s) => {
+      const m = selectedMsg(s);
+      if (!s.open || !isSpeech(m)) return toast(s, "select a voice message or video note to transcribe", true);
+      const key = `${s.account}:${s.open.chatId}:${m!.id}`;
+      if (s.transcripts[key]?.text) return [s, []];
+      return [{ ...s, transcripts: { ...s.transcripts, [key]: {} } }, [{ type: "transcribe", key, chatId: s.open.chatId, msgId: m!.id }]];
     },
   },
   {
@@ -462,6 +514,19 @@ export function handleKey(s: State, k: Key): Result {
     return pinned ? openChat({ ...s0, pending: "" }, pinned.id) : toast({ ...s0, pending: "" }, `no pinned chat #${pin[1]}`);
   }
 
+  if (s0.forward && s0.view === "list" && !s0.pending) {
+    if (t === "escape" || t === "q") return [{ ...s0, forward: undefined, filter: "", view: s0.open ? "chat" : "list" }, []];
+    if (t === "enter" || t === "l") {
+      const to = chatById(s0, s0.listSel);
+      if (!to) return [s0, []];
+      const f = s0.forward;
+      return [
+        { ...s0, forward: undefined, filter: "", view: s0.open ? "chat" : "list", toast: { text: `forwarding to ${to.title}…`, error: false } },
+        [{ type: "forward", fromChatId: f.fromChatId, msgIds: f.msgIds, toChatId: to.id, toTitle: to.title }],
+      ];
+    }
+  }
+
   const seq = s0.pending + t;
   const cmd = commandFor(s0, seq);
   if (cmd) return cmd.run({ ...s0, pending: "" });
@@ -503,7 +568,8 @@ function send(s: State): Result {
 
 function filterKey(s: State, k: Key, t: string): Result {
   if (t === "escape") return [{ ...s, mode: "normal", filter: "" }, []];
-  if (t === "enter") return [{ ...s, mode: "normal" }, []];
+  // picking a forward target: enter after typing the name forwards straight away
+  if (t === "enter") return s.forward ? handleKey({ ...s, mode: "normal" }, k) : [{ ...s, mode: "normal" }, []];
   if (t === "backspace") return [{ ...s, filter: [...s.filter].slice(0, -1).join("") }, []];
   if (t === "down" || t === "ctrl-n") return moveList(s, 1);
   if (t === "up" || t === "ctrl-p") return moveList(s, -1);

@@ -130,6 +130,10 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
         }
         case "markRead":
           return source.markRead(e.chatId).catch(fail("couldn't mark read"));
+        case "forward":
+          return source
+            .forward(e.fromChatId, e.msgIds, e.toChatId)
+            .then(() => act({ type: "toast", text: `forwarded to ${e.toTitle} · gc to open it` }), fail(`couldn't forward to ${e.toTitle}`));
         case "markUnread":
           return source.markUnread(e.chatId).catch(fail("couldn't mark unread"));
         case "loadExtras": {
@@ -159,9 +163,17 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
             .catch(fail("couldn't open the attachment"));
         case "openUrl":
           return (openFile ?? defaultOpen)(e.url).catch(fail("couldn't open the link"));
-        case "viewImage":
+        case "loadInline":
+          return (e.video ? source.thumbnail(e.chatId, e.msgId) : source.download(e.chatId, e.msgId))
+            .then((path) => act({ type: "inlineReady", key: e.key, path }))
+            .catch((err) => act({ type: "inlineReady", key: e.key, error: message(err) }));
+        case "transcribe":
           return source
-            .download(e.chatId, e.msgId)
+            .transcribe(e.chatId, e.msgId)
+            .then((text) => act({ type: "transcribed", key: e.key, text }))
+            .catch((err) => act({ type: "transcribed", key: e.key, error: message(err) }));
+        case "viewImage":
+          return (e.video ? source.thumbnail(e.chatId, e.msgId) : source.download(e.chatId, e.msgId))
             .then((path) => act({ type: "viewerReady", chatId: e.chatId, msgId: e.msgId, path }))
             .catch((err) => act({ type: "viewerReady", chatId: e.chatId, msgId: e.msgId, error: message(err) }));
         case "copy":
