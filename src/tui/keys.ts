@@ -1,5 +1,7 @@
 import * as ed from "./editor";
 import {
+  IMAGE_PROTOCOLS,
+  isImage,
   uncached,
   currentFolder,
   chatById,
@@ -212,18 +214,23 @@ function stepImage(s: State, dir: 1 | -1): Result {
   const msgs = s.open?.chatId === v.chatId ? s.open.messages : [];
   const i = msgs.findIndex((m) => m.id === v.msgId);
   for (let j = i + dir; j >= 0 && j < msgs.length; j += dir) {
-    if (msgs[j]!.media) {
+    if (isImage(msgs[j])) {
       const [s2, fx] = viewImage(s, v.chatId, msgs[j]!.id);
       return [{ ...s2, open: s2.open && { ...s2.open, sel: msgs[j]!.id } }, fx];
     }
   }
-  return toast(s, dir > 0 ? "no newer media in this chat" : "no older media loaded");
+  return toast(s, dir > 0 ? "no newer images in this chat" : "no older images loaded");
 }
 
 function viewerKey(s: State, t: string): Result {
   const v = s.viewer!;
   if (t === "escape" || t === "q" || t === "v" || t === "h") return [{ ...s, viewer: undefined }, []];
   if (t === "o") return [{ ...s, toast: { text: "opening…", error: false } }, [{ type: "openMedia", chatId: v.chatId, msgId: v.msgId }]];
+  if (t === "p") {
+    // terminals differ in what they draw: let the user pick, and remember it
+    const next = IMAGE_PROTOCOLS[(IMAGE_PROTOCOLS.indexOf(s.imageProtocol) + 1) % IMAGE_PROTOCOLS.length]!;
+    return [{ ...s, imageProtocol: next, toast: { text: `images: ${next} (saved — telegram config set images …)`, error: false } }, [{ type: "saveImageProtocol", protocol: next }]];
+  }
   if (t === "j" || t === "right" || t === "l") return stepImage(s, 1);
   if (t === "k" || t === "left") return stepImage(s, -1);
   return [s, []];
@@ -332,7 +339,8 @@ export const COMMANDS: Command[] = [
     views: ["chat"],
     run: (s) => {
       const m = selectedMsg(s);
-      if (!m?.media || !s.open) return toast(s, "the selected message has no image", true);
+      if (!s.open || !m?.media) return toast(s, "the selected message has no image", true);
+      if (!isImage(m)) return toast(s, `that's ${m.media}, not an image — o opens it in another app`, true);
       return viewImage(s, s.open.chatId, m.id);
     },
   },

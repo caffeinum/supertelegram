@@ -2,6 +2,8 @@ import type { ChatSummary, Folder, Msg, SearchHit, SourceEvent } from "./types";
 import { ALL_CHATS, folderChats } from "./folders";
 
 export type View = "list" | "chat" | "results";
+export type ImageProtocol = "auto" | "kitty" | "sixel" | "blocks";
+export const IMAGE_PROTOCOLS: ImageProtocol[] = ["kitty", "sixel", "blocks", "auto"];
 export type Mode = "normal" | "insert" | "filter";
 export type PaletteKind = "all" | "chats" | "accounts" | "search" | "search-chat" | "file" | "links" | "folders";
 
@@ -44,6 +46,7 @@ export interface State {
   pending: string; // first key of a sequence: "g" or "Z"
   scrollReq?: { seq: number; dir: 1 | -1 }; // half-page scroll, carried out by the visible view
   viewer?: { chatId: string; msgId: number; path?: string; error?: string }; // inline image view
+  imageProtocol: ImageProtocol;
   accountCache: Record<string, { label: string; chats: ChatSummary[]; folders: Folder[] }>; // other accounts, warmed in the background
   warmed: boolean;
   extrasFor?: string; // the account whose folder-only chats have been requested
@@ -74,6 +77,7 @@ export type Effect =
   | { type: "attachPath"; path: string; key: string; chatId: string }
   | { type: "saveDrafts" }
   | { type: "saveCache" }
+  | { type: "saveImageProtocol"; protocol: ImageProtocol }
   | { type: "quit" };
 
 export function initialState(account: string, accounts: string[], drafts: Record<string, Draft>, accountLabel = ""): State {
@@ -89,6 +93,7 @@ export function initialState(account: string, accounts: string[], drafts: Record
     filter: "",
     drafts,
     history: {},
+    imageProtocol: "auto",
     accountCache: {},
     warmed: false,
     outbox: {},
@@ -98,6 +103,12 @@ export function initialState(account: string, accounts: string[], drafts: Record
     quitArmed: false,
     quitPending: false,
   };
+}
+
+// media the viewer can draw: photos, stickers, and image files (not locations, voice, video…)
+export function isImage(m: Msg | undefined): boolean {
+  if (!m?.media) return false;
+  return m.media === "photo" || m.media === "sticker" || /^file: .*\.(png|jpe?g|gif|webp|heic|bmp|tiff?)$/i.test(m.media);
 }
 
 export const draftKey = (s: State, chatId: string) => `${s.account}:${chatId}`;

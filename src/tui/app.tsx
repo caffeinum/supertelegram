@@ -4,6 +4,7 @@ import { existsSync, statSync } from "node:fs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { copyText, pastedPath, readClipboardImage } from "./clipboard";
 import { saveDrafts } from "./drafts";
+import { setConfig } from "../config/manager";
 import { handleKey, type Key } from "./keys";
 import { apply, type Action, type Effect, type State } from "./state";
 import type { ChatPool, DataSource } from "./types";
@@ -17,6 +18,7 @@ type Step = (s: State) => [State, Effect[]];
 
 export interface AppProps {
   resyncMs?: number;
+  saveSetting?: (key: string, value: string) => void;
   source: DataSource;
   initial: State;
   onQuit: () => void;
@@ -31,7 +33,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 // so the list and the open chat are also refreshed on a slow timer and whenever the terminal regains focus
 const RESYNC_MS = 30_000;
 
-export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persistPool = () => {}, openFile, resyncMs = RESYNC_MS }: AppProps) {
+export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persistPool = () => {}, openFile, resyncMs = RESYNC_MS, saveSetting = setConfig }: AppProps) {
   const [state, setState] = useState(initial);
   const ref = useRef(initial);
   const { width: cols, height: rows } = useTerminalDimensions();
@@ -174,6 +176,8 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
           if (!existsSync(path) || !statSync(path).isFile()) return act({ type: "toast", text: `no file at ${path}`, error: true });
           return act({ type: "attach", path, key: e.key, chatId: e.chatId });
         }
+        case "saveImageProtocol":
+          return saveSetting("images", e.protocol);
         case "saveCache":
           clearTimeout(cacheTimer.current);
           cacheTimer.current = setTimeout(() => {

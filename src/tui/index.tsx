@@ -12,6 +12,7 @@ import { Component, type ReactNode } from "react";
 import { App } from "./app";
 import { loadDrafts } from "./drafts";
 import { loadPool, savePool } from "./cache";
+import { getConfig } from "../config/manager";
 import { LazySource } from "./lazy-source";
 import { getCurrentAccount, listAccounts, migrateLegacyIfNeeded } from "../config/accounts";
 import { initialState, visibleChats } from "./state";
@@ -58,6 +59,8 @@ export async function runTui(source?: DataSource, account?: string): Promise<voi
   // with one: draw it now and let the connection land behind it
   if (!cached) await src.ready;
   const initial = initialState(src.account(), src.accounts(), loadDrafts(), src.accountLabel());
+  const images = getConfig().images;
+  if (images === "auto" || images === "kitty" || images === "sixel" || images === "blocks") initial.imageProtocol = images;
   // last session's chat list: the first frame is complete; the live list replaces it a moment later
   if (cached) {
     Object.assign(initial, { chats: cached.chats, folders: cached.folders, chatsLoaded: true });

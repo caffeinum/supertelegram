@@ -11,6 +11,7 @@ export interface Config {
   appId?: string;
   appHash?: string;
   wss?: string;
+  images?: string; // tui image protocol: auto | kitty | sixel | blocks
 }
 
 function ensureConfigDir() {

@@ -1,4 +1,4 @@
-import { RGBA, TextAttributes, type ScrollBoxRenderable } from "@opentui/core";
+import { RGBA, TextAttributes, type ImageRenderable, type ScrollBoxRenderable } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import { useEffect, useRef } from "react";
 import { basename } from "node:path";
@@ -507,6 +507,7 @@ export function StatusBar({ s, cols }: { s: State; cols: number }) {
 // sixel or unicode blocks elsewhere — opentui picks with protocol="auto"
 export function Viewer({ s, cols, rows }: { s: State; cols: number; rows: number }) {
   const v = s.viewer!;
+  const imageRef = useRef<ImageRenderable>(null);
   const m = s.open?.chatId === v.chatId ? s.open.messages.find((x) => x.id === v.msgId) : undefined;
   const who = m ? (m.out ? "you" : (m.sender ?? m.senderId ?? "unknown sender")) : "";
   const title = ` ${who}${m ? ` · ${hhmm(m.date)} #${m.id}` : ""}${m?.text ? ` · ${m.text}` : ""} `;
@@ -519,12 +520,22 @@ export function Viewer({ s, cols, rows }: { s: State; cols: number; rows: number
         {v.error ? (
           <text fg={C.red}>{` couldn't load this image: ${v.error}. press o to open it in another app.`}</text>
         ) : v.path ? (
-          <image source={v.path} fit="fit" protocol="auto" width={cols} height={rows - 2} />
+          <image
+            key={`${v.path}:${s.imageProtocol}`}
+            source={v.path}
+            fit="fit"
+            protocol={s.imageProtocol}
+            width={cols}
+            height={rows - 2}
+            ref={imageRef}
+            onLoad={() => console.log(`image ${v.path} requested=${s.imageProtocol} drawn-with=${imageRef.current?.effectiveProtocol ?? "unknown"}`)}
+            onError={(err: unknown) => console.log(`image ${v.path} failed: ${err instanceof Error ? err.message : String(err)}`)}
+          />
         ) : (
           <text fg={C.gray}>{" loading image…"}</text>
         )}
       </box>
-      <text fg={C.gray}>{fit(" esc close · j/k next/prev media in this chat · o open in another app", cols)}</text>
+      <text fg={C.gray}>{fit(` esc close · j/k next/prev image · o open in another app · p drawing: ${s.imageProtocol} (blank? press p)`, cols)}</text>
     </box>
   );
 }

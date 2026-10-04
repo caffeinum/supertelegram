@@ -44,6 +44,7 @@ async function setup(opts: { width?: number; height?: number; drafts?: Record<st
   const src = new FakeSource(chats(), opts.messages ?? msgs());
   const saved: Record<string, Draft>[] = [];
   const opened: string[] = [];
+  const settings: [string, string][] = [];
   let quit = false;
   const t = await testRender(
     <App
@@ -52,6 +53,7 @@ async function setup(opts: { width?: number; height?: number; drafts?: Record<st
       onQuit={() => (quit = true)}
       persistDrafts={(d) => saved.push(structuredClone(d))}
       resyncMs={opts.resyncMs ?? 60_000}
+      saveSetting={(k: string, v: string) => settings.push([k, v])}
       openFile={async (p: string) => {
         opened.push(p);
       }}
@@ -90,7 +92,7 @@ async function setup(opts: { width?: number; height?: number; drafts?: Record<st
   };
   await until((f) => f.includes("Covers!"));
   teardown = () => t.renderer.destroy();
-  return { t, src, saved, opened, keys, frame, until, quit: () => quit };
+  return { t, src, saved, opened, settings, keys, frame, until, quit: () => quit };
 }
 
 afterEach(() => {
@@ -410,6 +412,33 @@ describe("links, images, filter, accounts", () => {
     await s.until((x) => x.includes("esc close") && !x.includes("loading image"));
     await s.keys("esc");
     await s.until((x) => !x.includes("esc close") && x.includes("look at this"));
+  });
+
+  test("v refuses non-images (a location) and j/k step over them; p switches how images are drawn", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "st-img2-"));
+    const png = join(dir, "p.png");
+    writeFileSync(png, Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc0000003010100c9fe92ef0000000049454e44ae426082", "hex"));
+    const m = msgs();
+    m["42"] = [
+      { id: 20, date: now - 300, out: false, senderId: "42", sender: "Kate", text: "", media: "photo" },
+      { id: 21, date: now - 200, out: false, senderId: "42", sender: "Kate", text: "", media: "location" },
+      { id: 22, date: now - 100, out: false, senderId: "42", sender: "Kate", text: "second pic", media: "photo" },
+    ];
+    const s = await setup({ messages: m });
+    s.src.imagePath = png;
+    await s.keys("gc", "kate", "enter");
+    await s.until((x) => x.includes("second pic"));
+    await s.keys("k"); // the location
+    await s.keys("v");
+    await s.until((x) => x.includes("not an image"));
+    expect(s.frame()).not.toContain("esc close");
+    await s.keys("j", "v"); // #22
+    await s.until((x) => x.includes("#22") && x.includes("esc close"));
+    await s.keys("k"); // steps over the location to #20
+    await s.until((x) => x.includes("#20") && x.includes("esc close"));
+    await s.keys("p");
+    await s.until((x) => x.includes("drawing: kitty"));
+    expect(s.settings).toEqual([["images", "kitty"]]);
   });
 
   test("opening a chat from a filtered list resets the filter", async () => {

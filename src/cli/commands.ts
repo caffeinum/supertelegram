@@ -126,7 +126,8 @@ export async function whoami(pinned?: string) {
   console.log(`${current} — ${who}`);
 }
 
-const CONFIG_KEYS = ["appId", "appHash", "wss"];
+const CONFIG_KEYS = ["appId", "appHash", "wss", "images"];
+const IMAGE_PROTOCOLS = ["auto", "kitty", "sixel", "blocks"];
 
 export async function config(action?: string, key?: string, value?: string) {
   const usage = [
@@ -134,6 +135,7 @@ export async function config(action?: string, key?: string, value?: string) {
     "  telegram config set appId <id>",
     "  telegram config set appHash <hash>",
     "  telegram config set wss true    (websocket transport for networks blocking mtproto)",
+    "  telegram config set images blocks   (how the tui draws images: auto, kitty, sixel, blocks)",
     "  telegram config get appId",
   ].join("\n");
 
@@ -142,6 +144,7 @@ export async function config(action?: string, key?: string, value?: string) {
 
   if (action === "set") {
     if (!value) throw usageError(`config set ${key} needs a value\n${usage}`);
+    if (key === "images" && !IMAGE_PROTOCOLS.includes(value)) throw usageError(`images must be one of ${IMAGE_PROTOCOLS.join(", ")}`);
     setConfig(key, value);
     console.log(`set ${key} = ${value}`);
     return;
@@ -149,6 +152,10 @@ export async function config(action?: string, key?: string, value?: string) {
 
   if (key === "wss") {
     console.log(String(getConfig().wss === "true"));
+    return;
+  }
+  if (key === "images") {
+    console.log(getConfig().images ?? "auto");
     return;
   }
   const creds = getApiCredentials();
