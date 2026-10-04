@@ -1,0 +1,24 @@
+tests/tui.test.tsx
+  s_16629319d5ff14::t_3818e953e84161 706-715
+src/tui/keys.ts
+  s_16629319d5ff14::t_3818e953e84161 365-369,375
+  s_16629319d5ff14::t_f72d67b7a76384 370-374
+package.json
+  s_16629319d5ff14::t_a2ba4c6b94ab51 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "db43e08c893dbecab4884da4ba4fd9becd6f2ee5",
+  "prompts": {},
+  "sessions": {
+    "s_16629319d5ff14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "178efc37-68c6-4170-ba93-827188df0ccd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
