@@ -50,7 +50,7 @@ export class LazySource implements DataSource {
   send = async (chatId: string, text: string, opts: SendOpts) => (await this.src()).send(chatId, text, opts);
   markRead = async (chatId: string, topic?: { id: number; maxId: number }) => (await this.src()).markRead(chatId, topic);
   forward = async (from: string, ids: number[], to: string) => (await this.src()).forward(from, ids, to);
-  react = async (chatId: string, msgId: number, emoji: string | undefined) => (await this.src()).react(chatId, msgId, emoji);
+  react = async (chatId: string, msgId: number, emojis: string[]) => (await this.src()).react(chatId, msgId, emojis);
   markUnread = async (chatId: string) => (await this.src()).markUnread(chatId);
   search = async (query: string, chatId?: string) => (await this.src()).search(query, chatId);
   download = async (chatId: string, msgId: number) => (await this.src()).download(chatId, msgId);

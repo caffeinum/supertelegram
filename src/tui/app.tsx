@@ -136,7 +136,11 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
         case "markRead":
           return source.markRead(e.chatId, e.topic).catch(fail("couldn't mark read"));
         case "react":
-          return source.react(e.chatId, e.msgId, e.emoji).catch(fail("couldn't react"));
+          return source.react(e.chatId, e.msgId, e.emojis).catch((err) => {
+            // the optimistic change was wrong: say why and reload the real reactions
+            act({ type: "toast", text: `telegram refused the reaction: ${message(err)}`, error: true });
+            void exec({ type: "openChat", chatId: e.chatId, topicId: e.topicId, markRead: false });
+          });
         case "forward":
           return source
             .forward(e.fromChatId, e.msgIds, e.toChatId)

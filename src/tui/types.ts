@@ -105,8 +105,8 @@ export interface DataSource {
   topics(chatId: string): Promise<Topic[]>;
   send(chatId: string, text: string, opts: SendOpts): Promise<Msg>;
   forward(fromChatId: string, msgIds: number[], toChatId: string): Promise<void>;
-  // set your reaction on a message (an empty emoji removes it)
-  react(chatId: string, msgId: number, emoji: string | undefined): Promise<void>;
+  // set your reactions on a message (telegram allows several, premium more; empty clears them)
+  react(chatId: string, msgId: number, emojis: string[]): Promise<void>;
   markRead(chatId: string, topic?: { id: number; maxId: number }): Promise<void>;
   markUnread(chatId: string): Promise<void>;
   search(query: string, chatId?: string): Promise<SearchHit[]>;

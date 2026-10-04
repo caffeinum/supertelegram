@@ -372,10 +372,10 @@ export class GramSource implements DataSource {
     await this.client.forwardMessages(await this.entity(toChatId), { messages: msgIds, fromPeer: await this.entity(fromChatId) });
   }
 
-  async react(chatId: string, msgId: number, emoji: string | undefined) {
+  async react(chatId: string, msgId: number, emojis: string[]) {
     await this.ready;
     await this.client.invoke(
-      new Api.messages.SendReaction({ peer: await this.entity(chatId), msgId, reaction: emoji ? [new Api.ReactionEmoji({ emoticon: emoji })] : [] })
+      new Api.messages.SendReaction({ peer: await this.entity(chatId), msgId, reaction: emojis.map((emoticon) => new Api.ReactionEmoji({ emoticon })) })
     );
   }
 

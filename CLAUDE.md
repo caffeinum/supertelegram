@@ -54,5 +54,6 @@ drive it through a real tty with `expect`. send keystrokes separately with a pau
 - forums: a conversation is chat or chat#topic (`convId`); drafts, history cache and sends key on it. topic of a message = replyTo.forumTopic → replyToTopId ?? replyToMsgId; none = General (1). sending into a topic = replyTo the topic root (+ topMsgId when replying inside it). topics page 100 at a time (aleks's "ai" forum has ~147).
 - never send test messages into the "ai" forum — aleks's agents live there.
 - downloads must keep the file extension (`defaultFileName`), or `open` hands a jpeg to TextEdit.
+- opentui's parser mangles esc + multi-byte utf-8 (option+letter on a non-latin layout with option-as-alt): an empty key "\x1b\uFFFD" then a fake alt+ctrl-key from the second byte (option+і → alt+v). handleKey swallows the pair and shows a hint; aleks's ghostty config has macos-option-as-alt = true.
 - real terminals send DEL (0x7f) for backspace; the opentui mock sends \b. classify keys by name before treating a byte as text.
 - colors: only `C.fg`/`C.bg` (terminal defaults) and palette indexes — opentui's implicit text color is white rgb, invisible on light themes (aleks runs a light cmux theme). the theme-safe test fails on any rgb color or inverse video.

@@ -61,6 +61,7 @@ export interface State {
   online: boolean;
   quitArmed: boolean;
   quitPending: boolean; // quit asked while a send was in flight: quit once it lands
+  swallowMeta?: boolean; // the bogus alt+key opentui emits after a garbled esc+utf-8 (option+letter as alt)
 }
 
 export type Effect =
@@ -75,7 +76,7 @@ export type Effect =
   | { type: "send"; key: string; chatId: string; topicId?: number; draft: Draft }
   | { type: "markRead"; chatId: string; topic?: { id: number; maxId: number } }
   | { type: "forward"; fromChatId: string; msgIds: number[]; toChatId: string; toTitle: string }
-  | { type: "react"; chatId: string; msgId: number; emoji: string | undefined }
+  | { type: "react"; chatId: string; msgId: number; emojis: string[]; topicId?: number }
   | { type: "markUnread"; chatId: string }
   | { type: "switchAccount"; name: string }
   | { type: "search"; query: string; chatId?: string }

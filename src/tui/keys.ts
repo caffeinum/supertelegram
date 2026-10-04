@@ -541,7 +541,22 @@ function isPrefix(s: State, seq: string): boolean {
 }
 
 // returns the next state and effects for one key press
+export const OPTION_AS_ALT_HINT =
+  "option+key arrived as alt — your terminal sends option as alt, so option letters can't be typed. ghostty/cmux: macos-option-as-alt = left (right option types ї)";
+
 export function handleKey(s: State, k: Key): Result {
+  // option+letter on a non-latin layout, sent as alt (esc + utf-8 bytes), comes out of opentui's parser as
+  // an empty key "esc + \uFFFD" followed by a fake alt+ctrl-key built from the letter's second byte
+  // (option+і → alt+v). swallow both, stay where you are, and say what's going on
+  if (k.name === "" && k.sequence.startsWith("\x1b") && k.sequence.includes("\uFFFD")) {
+    return [{ ...s, swallowMeta: true, toast: { text: OPTION_AS_ALT_HINT, error: true } }, []];
+  }
+  if (s.swallowMeta) {
+    const rest = { ...s, swallowMeta: false };
+    if (k.meta) return [rest, []];
+    return handleKey(rest, k);
+  }
+
   const t = token(k);
   const s0 = t === "ctrl-c" ? { ...s } : { ...s, quitArmed: false, toast: t === "escape" ? undefined : s.toast };
   // typing only exists in a chat: whatever got us elsewhere, keys there are commands
@@ -558,6 +573,11 @@ export function handleKey(s: State, k: Key): Result {
   // esc followed quickly by a key arrives as alt+key: treat it as esc, then the key (as vim does).
   // alt-1..9 stay pinned chats; alt-enter / alt-backspace are real chords in the prompt
   const escThen = t.match(/^alt-(.)$/);
+  // option+letter on a non-latin layout (e.g. option+і → ї on ukrainian) arrives as alt+letter when the
+  // terminal sends option as alt. that's typing, not a fast esc: never leave the prompt over it
+  if (escThen && /[^\x00-\x7f]/.test(escThen[1]!) && (s0.mode === "insert" || s0.mode === "filter" || s0.palette)) {
+    return toast(s0, OPTION_AS_ALT_HINT, true);
+  }
   if (escThen && !/[1-9]/.test(escThen[1]!)) {
     const [afterEsc, fx1] = handleKey(s0, { name: "escape", ctrl: false, meta: false, shift: false, sequence: "\x1b" });
     const [after, fx2] = handleKey(afterEsc, { name: escThen[1]!, ctrl: false, meta: false, shift: false, sequence: escThen[1]! });
@@ -734,16 +754,20 @@ export function paletteEntries(s: State): PaletteEntry[] {
     const m = selectedMsg(s);
     if (!m || !s.open) return [];
     const chatId = s.open.chatId;
-    const mine = m.reactions?.find((r) => r.mine)?.emoji;
+    const topicId = s.open.topicId;
+    const mine = (m.reactions ?? []).filter((r) => r.mine).map((r) => r.emoji);
     return REACTIONS.filter(([, name]) => fuzzy(q, name) > 0).map(([emoji, name]) => ({
       label: `${emoji}  ${name}`,
-      hint: emoji === mine ? "yours · enter removes" : "",
+      hint: mine.includes(emoji) ? "yours · enter removes" : "",
       run: (s2: State): Result => {
-        const next = emoji === mine ? undefined : emoji;
-        // show it right away; telegram's update confirms it
-        const others = (m.reactions ?? []).map((r) => (r.mine ? { ...r, count: r.count - 1, mine: false } : r)).filter((r) => r.count > 0);
-        const updated = next ? addMine(others, next) : others;
-        return [{ ...setReactions(s2, chatId, m.id, updated), palette: undefined }, [{ type: "react", chatId, msgId: m.id, emoji: next }]];
+        // telegram allows several reactions per person: picking toggles this one in your set
+        const removing = mine.includes(emoji);
+        const emojis = removing ? mine.filter((e) => e !== emoji) : [...mine, emoji];
+        const base = m.reactions ?? [];
+        const updated = removing
+          ? base.map((r) => (r.emoji === emoji ? { ...r, count: r.count - 1, mine: false } : r)).filter((r) => r.count > 0)
+          : addMine(base, emoji);
+        return [{ ...setReactions(s2, chatId, m.id, updated), palette: undefined }, [{ type: "react", chatId, msgId: m.id, emojis, topicId }]];
       },
     }));
   }

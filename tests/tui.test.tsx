@@ -703,6 +703,20 @@ describe("input row, reply, reactions", () => {
     expect(s.src.sent()[1]![2]).toEqual({ replyTo: 1000 }); // the newest message, our own "fresh one"
   });
 
+  test("option+cyrillic arriving as alt keeps you typing and explains why", async () => {
+    const s = await setup();
+    await s.keys("enter");
+    await s.until((x) => x.includes("8qcK address"));
+    await s.keys("i", "при");
+    // the real bytes a terminal with option-as-alt sends for ukrainian option+і: esc + utf-8 (d1 96)
+    s.t.renderer.stdin.emit("data", Buffer.from("\x1bі", "utf8"));
+    await Bun.sleep(60);
+    await s.until((x) => x.includes("option+key arrived as alt"));
+    expect(s.frame()).toContain("INSERT");
+    await s.keys("вет", "enter");
+    await s.until((x) => x.includes("> привет"));
+  });
+
   test("ctrl-r refreshes the list and says so", async () => {
     const s = await setup();
     s.src.chats.push({ id: "77", title: "Brand New", kind: "user", unread: 1, mentions: 0, muted: false, pinned: false, last: { text: "hey", out: false, date: now + 5 } });
@@ -743,12 +757,26 @@ describe("input row, reply, reactions", () => {
     await s.until((x) => x.includes("react with…") && x.includes("thumbs up like"));
     await s.keys("fire", "enter");
     await s.until((x) => x.includes("🔥 1"));
-    expect(s.src.calls.find((c) => c.method === "react")!.args).toEqual(["-100", 3, "🔥"]);
+    expect(s.src.calls.find((c) => c.method === "react")!.args).toEqual(["-100", 3, ["🔥"]]);
     await s.keys("r", "fire");
     await s.until((x) => x.includes("yours · enter removes"));
     await s.keys("enter");
     await s.until((x) => !x.includes("🔥 1"));
-    expect(s.src.calls.filter((c) => c.method === "react").pop()!.args).toEqual(["-100", 3, undefined]);
+    expect(s.src.calls.filter((c) => c.method === "react").pop()!.args).toEqual(["-100", 3, []]);
+  });
+
+  test("several reactions at once; telegram's limit is reported and the real state reloaded", async () => {
+    const s = await setup();
+    await s.keys("enter");
+    await s.until((x) => x.includes("8qcK address"));
+    await s.keys("k", "r", "fire", "enter");
+    await s.until((x) => x.includes("🔥 1"));
+    await s.keys("r", "heart", "enter");
+    await s.until((x) => x.includes("🔥 1") && x.includes("❤️ 1"));
+    expect(s.src.calls.filter((c) => c.method === "react").pop()!.args).toEqual(["-100", 3, ["🔥", "❤️"]]);
+    s.src.reactLimit = 2;
+    await s.keys("r", "party", "enter");
+    await s.until((x) => x.includes("telegram refused the reaction: REACTIONS_TOO_MANY"));
   });
 
   test("reactions from others arrive live", async () => {
