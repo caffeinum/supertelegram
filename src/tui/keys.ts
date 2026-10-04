@@ -520,7 +520,7 @@ export const COMMANDS: Command[] = [
     keys: ["ctrl-r"],
     views: ALL,
     run: (s) => [
-      s,
+      { ...s, toast: { text: "refreshing…", error: false } },
       [
         { type: "loadChats" },
         ...(s.view === "chat" && s.open ? [{ type: "openChat" as const, chatId: s.open.chatId, topicId: s.open.topicId, markRead: false }] : []),

@@ -260,7 +260,8 @@ export function apply(s: State, a: Action): [State, Effect[]] {
       const shaped = { ...s, chats: a.chats, folders, folderId };
       const shown = visibleChats(shaped);
       const listSel = s.listSel && shown.some((c) => c.id === s.listSel) ? s.listSel : shown[0]?.id;
-      const next = { ...shaped, chatsLoaded: true, listSel, warmed: true };
+      const done = s.toast?.text === "refreshing…" ? { toast: { text: `refreshed · ${a.chats.length} chats`, error: false } } : {};
+      const next = { ...shaped, chatsLoaded: true, listSel, warmed: true, ...done };
       const warm = uncached(next, shown.slice(0, PREFETCH_TOP).map((c) => c.id));
       const others = s.warmed ? [] : s.accounts.filter((x) => x !== s.account);
       // chats only a folder names are kept across refreshes (they're not among the recent ones)

@@ -703,6 +703,13 @@ describe("input row, reply, reactions", () => {
     expect(s.src.sent()[1]![2]).toEqual({ replyTo: 1000 }); // the newest message, our own "fresh one"
   });
 
+  test("ctrl-r refreshes the list and says so", async () => {
+    const s = await setup();
+    s.src.chats.push({ id: "77", title: "Brand New", kind: "user", unread: 1, mentions: 0, muted: false, pinned: false, last: { text: "hey", out: false, date: now + 5 } });
+    await s.keys("ctrl-r");
+    await s.until((x) => x.includes("refreshed · 5 chats") && x.includes("Brand New"));
+  });
+
   test("ctrl-x drops the reply chip from normal mode too", async () => {
     const s = await setup();
     await s.keys("enter");
