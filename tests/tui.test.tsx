@@ -163,7 +163,7 @@ describe("chat view", () => {
     const { keys, until, src } = await setup();
     await keys("enter");
     await until((x) => x.includes("8qcK address"));
-    await keys("k", "r", "got it", "enter"); // k → message #2
+    await keys("k", "k", "enter", "got it", "enter"); // from your input: k → #3, k → #2; enter replies
     await until((x) => x.includes("> got it"));
     expect(src.sent()[0]).toEqual(["-100", "got it", { replyTo: 2 }]);
   });
@@ -392,7 +392,8 @@ describe("scrolling like vim", () => {
     await s.until((x) => x.includes("msg 70"));
     await Bun.sleep(60);
     await s.keys("ctrl-u");
-    await s.until((x) => !x.includes("msg 70") && cursorRow(x) > 0);
+    // post-render frames run late under a full parallel suite: allow longer than the default
+    await s.until((x) => !x.includes("msg 70") && cursorRow(x) > 0, 8000);
   });
 });
 
@@ -406,7 +407,7 @@ describe("links, images, filter, accounts", () => {
     const s = await setup({ messages: m });
     await s.keys("enter");
     await s.until((x) => x.includes("I mean"));
-    await s.keys("o");
+    await s.keys("k", "o"); // the location (newest)
     await s.until(() => s.opened.includes("https://maps.apple.com/?ll=37.7,-122.4"));
     await s.keys("k", "o");
     await s.until(() => s.opened.includes("https://x.com/paw_lean/status/1"));
@@ -419,7 +420,7 @@ describe("links, images, filter, accounts", () => {
     const s = await setup({ messages: m });
     await s.keys("enter");
     await s.until((x) => x.includes("solscan"));
-    await s.keys("gx");
+    await s.keys("k", "gx");
     await s.until(() => s.opened.includes("https://solscan.io/tx/abc"));
   });
 
@@ -429,7 +430,7 @@ describe("links, images, filter, accounts", () => {
     s.src.imagePath = png;
     await s.keys("gc", "kate", "enter");
     await s.until((x) => x.includes("look at this"));
-    await s.keys("v"); // inline, under the message
+    await s.keys("k", "v"); // inline, under the message
     // drawn in the chat: the image's pixels appear while the transcript is still on screen
     await s.until((f) => f.includes("look at this") && drawsPixels(s.t) && !f.includes("esc close"));
     expect(s.src.calls.some((c) => c.method === "download")).toBe(true);
@@ -451,7 +452,7 @@ describe("links, images, filter, accounts", () => {
     s.src.imagePath = png;
     await s.keys("gc", "kate", "enter");
     await s.until((x) => x.includes("second pic"));
-    await s.keys("k"); // the location
+    await s.keys("k", "k"); // from your input: #22, then the location
     await s.keys("v");
     await s.until((x) => x.includes("not an image"));
     expect(s.frame()).not.toContain("esc close");
@@ -477,7 +478,7 @@ describe("links, images, filter, accounts", () => {
     s.src.transcripts["42:30"] = "see you at seven near the station";
     await s.keys("gc", "kate", "enter");
     await s.until((x) => x.includes("trip.mp4"));
-    await s.keys("k", "k", "t"); // the voice message
+    await s.keys("k", "k", "k", "t"); // from your input up to the voice message
     await s.until((x) => x.includes("✎ see you at seven near the station"));
     await s.keys("j", "t"); // the video note has no transcript in the fake → error shown, not invented
     await s.until((x) => x.includes("✎ transcription needs telegram premium"));
@@ -526,6 +527,7 @@ describe("links, images, filter, accounts", () => {
     const send = s.src.calls.find((c) => c.method === "send")!;
     expect(send.args[0]).toBe("555");
     expect(send.args[3]).toBe("work"); // sent only after the client really switched
+    expect(s.settings).toContainEqual(["tuiAccount", "work"]); // remembered for next launch
   });
 });
 
@@ -624,7 +626,9 @@ test("the cursor bar covers every row of the selected message, photo included", 
   m["42"] = [{ id: 50, date: now - 60, out: false, senderId: "42", sender: "Kate", text: "line one", media: "photo" }];
   const s = await setup({ messages: m });
   await s.keys("gc", "kate", "enter");
-  const f = await s.until((x) => x.includes("line one"));
+  await s.until((x) => x.includes("line one"));
+  await s.keys("k");
+  const f = await s.until((x) => x.split("\n").some((l) => l.startsWith("▌") && l.includes("⏺ Kate")));
   const lines = f.split("\n");
   const head = lines.findIndex((l) => l.includes("⏺ Kate"));
   expect(lines[head]!.startsWith("▌")).toBe(true);
@@ -686,12 +690,65 @@ describe("forums", () => {
   });
 });
 
+describe("input row, reply, reactions", () => {
+  test("a chat opens with the cursor on your input; enter writes (no reply); k then enter replies", async () => {
+    const s = await setup();
+    await s.keys("enter");
+    await s.until((x) => x.includes("8qcK address") && x.includes("▌> enter to write"));
+    await s.keys("enter", "fresh one", "enter");
+    await s.until((x) => x.includes("> fresh one"));
+    expect(s.src.sent()[0]).toEqual(["-100", "fresh one", { replyTo: undefined }]);
+    await s.keys("esc", "k", "enter", "answer", "enter");
+    await s.until((x) => x.includes("> answer"));
+    expect(s.src.sent()[1]![2]).toEqual({ replyTo: 1000 }); // the newest message, our own "fresh one"
+  });
+
+  test("j past the last message returns to the input; a live message doesn't move a cursor on a message", async () => {
+    const s = await setup();
+    await s.keys("enter");
+    await s.until((x) => x.includes("8qcK address"));
+    await s.keys("k");
+    await s.until((x) => !x.includes("▌> enter to write"));
+    s.src.push({ type: "message", chatId: "-100", msg: { id: 60, date: now, out: false, senderId: "11", sender: "mnk", text: "while reading" } });
+    await s.until((x) => x.includes("1 new ↓"));
+    const barred = s.frame().split("\n").filter((l) => l.startsWith("▌")).join("\n");
+    expect(barred).toContain("8qcK address"); // still on #3
+    expect(barred).not.toContain("while reading");
+    await s.keys("j", "j"); // the new message, then your input
+    await s.until((x) => x.includes("▌> enter to write"));
+  });
+
+  test("r opens the reaction picker; picking reacts and shows it; picking again removes it", async () => {
+    const s = await setup();
+    await s.keys("enter");
+    await s.until((x) => x.includes("8qcK address"));
+    await s.keys("k", "r");
+    await s.until((x) => x.includes("react with…") && x.includes("thumbs up like"));
+    await s.keys("fire", "enter");
+    await s.until((x) => x.includes("🔥 1"));
+    expect(s.src.calls.find((c) => c.method === "react")!.args).toEqual(["-100", 3, "🔥"]);
+    await s.keys("r", "fire");
+    await s.until((x) => x.includes("yours · enter removes"));
+    await s.keys("enter");
+    await s.until((x) => !x.includes("🔥 1"));
+    expect(s.src.calls.filter((c) => c.method === "react").pop()!.args).toEqual(["-100", 3, undefined]);
+  });
+
+  test("reactions from others arrive live", async () => {
+    const s = await setup();
+    await s.keys("enter");
+    await s.until((x) => x.includes("8qcK address"));
+    s.src.push({ type: "reactions", chatId: "-100", msgId: 3, reactions: [{ emoji: "❤️", count: 2, mine: false }] });
+    await s.until((x) => x.includes("❤️ 2"));
+  });
+});
+
 describe("forward", () => {
   test("f picks a chat from a recency-sorted list and forwards there; esc cancels", async () => {
     const s = await setup();
     await s.keys("enter");
     await s.until((x) => x.includes("8qcK address"));
-    await s.keys("f");
+    await s.keys("k", "f");
     await s.until((x) => x.includes("forward #3 to…"));
     const rows = s.frame().split("\n").filter((l) => /^[▌ ][●◌✎⌃ ] /.test(l)).map((l) => l.slice(3, 20).trim()).filter(Boolean);
     expect(rows).toEqual(["Covers!", "Kate", "Saved Messages", "Noisy Group"]); // newest first

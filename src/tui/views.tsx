@@ -35,6 +35,8 @@ function useCursorScroll(
     const fn = () => {
       const box = ref.current;
       const s = st.current;
+      // on the input row: half-page scrolls measure from the newest message
+      if (box && !s.selId && s.request && s.request.seq !== s.handled && s.rowIds.length) s.selId = s.rowIds[s.rowIds.length - 1];
       if (!box || !s.selId) return;
       const vpTop = box.viewport.y;
       const vpH = box.viewport.height;
@@ -71,15 +73,21 @@ function useCursorScroll(
         return;
       }
 
+      const log = (why: string, by: number) =>
+        console.log(`scroll ${why} sel=${s.selId} vp=${vpTop}+${vpH} child=${child.y}+${child.height} offset=${offset} top=${box.scrollTop} by=${by}`);
       if (s.anchor && s.anchor.id === s.selId && s.anchor.top === box.scrollTop && s.anchor.offset !== offset) {
+        log("anchor", offset - s.anchor.offset);
         box.scrollBy(offset - s.anchor.offset);
         moved = true;
       } else if (s.selId !== s.lastSel) {
         if (offset < SCROLLOFF) {
+          log("scrolloff-top", offset - SCROLLOFF);
           box.scrollBy(offset - SCROLLOFF);
           moved = true;
         } else if (offset + child.height > vpH - SCROLLOFF) {
-          box.scrollBy(Math.min(offset + child.height - (vpH - SCROLLOFF), offset));
+          const by = Math.min(offset + child.height - (vpH - SCROLLOFF), offset);
+          log("scrolloff-bottom", by);
+          box.scrollBy(by);
           moved = true;
         }
       }
@@ -222,6 +230,20 @@ function InlineImage({ s, m }: { s: State; m: Msg }) {
   );
 }
 
+function Reactions({ m }: { m: Msg }) {
+  if (!m.reactions?.length) return null;
+  return (
+    <text fg={C.fg}>
+      {"  "}
+      {m.reactions.map((r, i) => (
+        <span key={r.emoji} fg={r.mine ? C.accent : C.gray} attributes={r.mine ? BOLD : 0}>
+          {`${i ? "  " : ""}${r.emoji} ${r.count}`}
+        </span>
+      ))}
+    </text>
+  );
+}
+
 function Transcript({ s, m }: { s: State; m: Msg }) {
   const t = s.open ? s.transcripts[`${s.account}:${s.open.chatId}:${m.id}`] : undefined;
   if (!t) return null;
@@ -274,6 +296,7 @@ function MessageView({ m, prev, sel, s, replied }: { m: Msg; prev?: Msg; sel: bo
               {media && <text fg={C.blue}>{media}</text>}
               <InlineImage s={s} m={m} />
               <Transcript s={s} m={m} />
+              <Reactions m={m} />
             </box>
             <text fg={C.gray} attributes={DIM}>{` ${meta}`}</text>
           </box>
@@ -312,6 +335,7 @@ function MessageView({ m, prev, sel, s, replied }: { m: Msg; prev?: Msg; sel: bo
             {media && <text fg={C.blue}>{media}</text>}
             <InlineImage s={s} m={m} />
             <Transcript s={s} m={m} />
+            <Reactions m={m} />
           </box>
           {grouped && (
             <text fg={C.gray} attributes={DIM}>
@@ -374,13 +398,14 @@ export function Prompt({ s, cols }: { s: State; cols: number }) {
   const insert = s.mode === "insert";
   const replied = d?.replyTo ? s.open?.messages.find((m) => m.id === d.replyTo) : undefined;
   const lines = (d?.text ?? "").split("\n");
+  const onInputRow = s.view === "chat" && s.open?.sel === undefined;
 
   // the cursor is drawn as an inverse cell inside the line that holds it
   let offset = 0;
   const rendered = lines.map((line, i) => {
     const start = offset;
     offset += line.length + 1;
-    const prefix = i === 0 ? "> " : "  ";
+    const prefix = i === 0 ? (onInputRow ? "▌> " : "> ") : onInputRow ? "▌  " : "  ";
     if (!insert || !d || d.cursor < start || d.cursor > start + line.length) {
       return (
         <text fg={C.fg} key={i}>
@@ -417,8 +442,8 @@ export function Prompt({ s, cols }: { s: State; cols: number }) {
       {insert || hasDraft(d) ? (
         rendered
       ) : (
-        <text fg={C.gray} attributes={DIM}>
-          {"> press i to write · r to reply to the selected message · ctrl-k commands"}
+        <text fg={C.gray} attributes={onInputRow ? 0 : DIM}>
+          {onInputRow ? "▌> enter to write · k to pick a message (enter replies, r reacts) · ctrl-k commands" : "> enter replies to the selected message · r reacts · j to your input"}
         </text>
       )}
     </box>
@@ -487,6 +512,7 @@ const PALETTE_TITLES: Record<string, string> = {
   file: "attach a file — type a path",
   links: "open which link?",
   folders: "go to folder",
+  react: "react with…",
 };
 
 export function Palette({ s, cols }: { s: State; cols: number }) {
@@ -555,7 +581,7 @@ const HINTS: Record<string, string> = {
   topics: "j/k move · enter open topic · / filter topics · h back to chats · ctrl-k commands",
   forward: "pick a chat to forward to · j/k move · / filter · enter forward · esc cancel",
   list: "j/k move · enter open · / filter · gu next unread · gs search · ctrl-k commands",
-  chat: "j/k select · i write · r reply · o open media · / search · h back · ctrl-k commands",
+  chat: "j/k select · enter reply (or write) · r react · f forward · v image · o open · / search · h back · ctrl-k",
   results: "j/k move · enter open in chat · esc back",
   insert: "enter send · alt-enter newline · ctrl-v paste image · esc normal (draft kept)",
   filter: "type to filter · enter keep · esc clear",

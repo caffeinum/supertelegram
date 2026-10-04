@@ -13,7 +13,7 @@ import { chatType, displayName, mediaLabel, peerId, username } from "../cli/form
 import { CliError } from "../cli/errors";
 import { defaultFileName } from "../cli/chat";
 import { transcribe } from "../client/transcribe";
-import type { ChatPool, ChatSummary, DataSource, Folder, Msg, SearchHit, SendOpts, SourceEvent, Topic } from "./types";
+import type { ChatPool, ChatSummary, DataSource, Folder, Msg, Reaction, SearchHit, SendOpts, SourceEvent, Topic } from "./types";
 import { Dialog as TgDialog } from "telegram/tl/custom/dialog";
 import { ALL_CHATS } from "./folders";
 
@@ -51,11 +51,21 @@ function topicOf(m: TgMessage): number | undefined {
   return r.replyToTopId ?? r.replyToMsgId;
 }
 
+export function toReactions(r: Api.TypeMessageReactions | undefined): Reaction[] | undefined {
+  if (!(r instanceof Api.MessageReactions) || !r.results.length) return undefined;
+  return r.results.map((x) => ({
+    emoji: x.reaction instanceof Api.ReactionEmoji ? x.reaction.emoticon : x.reaction instanceof Api.ReactionPaid ? "⭐" : "✦",
+    count: x.count,
+    mine: x.chosenOrder !== undefined,
+  }));
+}
+
 export function toMsg(m: TgMessage, sender: Entity | undefined, me?: string): Msg {
   const service = m instanceof Api.MessageService;
   const topicId = topicOf(m);
   return {
     topicId,
+    reactions: service ? undefined : toReactions(m.reactions),
     album: !service && m.groupedId ? m.groupedId.toString() : undefined,
     urls: linksOf(m),
     id: m.id,
@@ -362,6 +372,13 @@ export class GramSource implements DataSource {
     await this.client.forwardMessages(await this.entity(toChatId), { messages: msgIds, fromPeer: await this.entity(fromChatId) });
   }
 
+  async react(chatId: string, msgId: number, emoji: string | undefined) {
+    await this.ready;
+    await this.client.invoke(
+      new Api.messages.SendReaction({ peer: await this.entity(chatId), msgId, reaction: emoji ? [new Api.ReactionEmoji({ emoticon: emoji })] : [] })
+    );
+  }
+
   async markRead(chatId: string, topic?: { id: number; maxId: number }) {
     await this.ready;
     const e = await this.entity(chatId);
@@ -508,6 +525,8 @@ export class GramSource implements DataSource {
         this.emit({ type: "online", online: update.state === UpdateConnectionState.connected });
       } else if (update instanceof Api.UpdateReadHistoryInbox) {
         this.emit({ type: "read", chatId: utils.getPeerId(update.peer).toString() });
+      } else if (update instanceof Api.UpdateMessageReactions) {
+        this.emit({ type: "reactions", chatId: utils.getPeerId(update.peer).toString(), msgId: update.msgId, reactions: toReactions(update.reactions) ?? [] });
       } else if (update instanceof Api.UpdateReadChannelInbox) {
         this.emit({ type: "read", chatId: utils.getPeerId(new Api.PeerChannel({ channelId: update.channelId })).toString() });
       }

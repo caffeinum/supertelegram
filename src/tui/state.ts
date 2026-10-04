@@ -1,11 +1,11 @@
-import type { ChatSummary, Folder, Msg, SearchHit, SourceEvent, Topic } from "./types";
+import type { ChatSummary, Folder, Msg, Reaction, SearchHit, SourceEvent, Topic } from "./types";
 import { ALL_CHATS, folderChats } from "./folders";
 
 export type View = "list" | "topics" | "chat" | "results";
 export type ImageProtocol = "auto" | "kitty" | "sixel" | "blocks";
 export const IMAGE_PROTOCOLS: ImageProtocol[] = ["kitty", "sixel", "blocks", "auto"];
 export type Mode = "normal" | "insert" | "filter";
-export type PaletteKind = "all" | "chats" | "accounts" | "search" | "search-chat" | "file" | "links" | "folders";
+export type PaletteKind = "all" | "chats" | "accounts" | "search" | "search-chat" | "file" | "links" | "folders" | "react";
 
 export interface Draft {
   text: string;
@@ -20,7 +20,7 @@ export interface OpenChat {
   topicTitle?: string;
   markOnLoad?: boolean; // a topic with unread messages: mark read up to the newest once loaded
   messages: Msg[];
-  sel?: number; // message id
+  sel?: number; // message id; undefined = the cursor rests on your input, below the last message
   loading: boolean;
   atStart: boolean; // no older messages left
   latest: boolean; // the newest message is loaded (false after jumping to a search hit)
@@ -75,6 +75,7 @@ export type Effect =
   | { type: "send"; key: string; chatId: string; topicId?: number; draft: Draft }
   | { type: "markRead"; chatId: string; topic?: { id: number; maxId: number } }
   | { type: "forward"; fromChatId: string; msgIds: number[]; toChatId: string; toTitle: string }
+  | { type: "react"; chatId: string; msgId: number; emoji: string | undefined }
   | { type: "markUnread"; chatId: string }
   | { type: "switchAccount"; name: string }
   | { type: "search"; query: string; chatId?: string }
@@ -297,7 +298,7 @@ export function apply(s: State, a: Action): [State, Effect[]] {
       const conv = convId(a.chatId, a.topicId);
       if (!s.open || openConv(s) !== conv) return [{ ...s, history: a.latest ? remember(s, conv, a.msgs) : s.history }, []];
       const o = s.open;
-      const wasAtEnd = o.sel === undefined || o.sel === o.messages[o.messages.length - 1]?.id;
+      const onInput = o.sel === undefined;
       // a refresh of a chat shown from cache merges in, so nothing jumps under the cursor
       const refreshing = a.mode === "replace" && a.latest && o.latest && o.messages.length > 0;
       const messages = a.mode === "replace" && !refreshing ? a.msgs : mergeMessages(a.msgs, o.messages);
@@ -305,10 +306,10 @@ export function apply(s: State, a: Action): [State, Effect[]] {
         a.mode === "prepend"
           ? (a.msgs[a.msgs.length - 1]?.id ?? o.sel)
           : refreshing
-            ? wasAtEnd
-              ? messages[messages.length - 1]?.id
+            ? onInput
+              ? undefined
               : o.sel
-            : (a.select ?? messages[messages.length - 1]?.id);
+            : a.select; // a fresh open rests on the input row; a search jump lands on its hit
       return [
         {
           ...s,
@@ -353,8 +354,7 @@ export function apply(s: State, a: Action): [State, Effect[]] {
       const conv = msgConv(s, a.chatId, a.msg);
       let open = s.open;
       if (open && openConv(s) === conv && open.latest) {
-        const atEnd = open.sel === open.messages[open.messages.length - 1]?.id;
-        open = { ...open, messages: mergeMessages(open.messages, [a.msg]), sel: atEnd ? a.msg.id : open.sel };
+        open = { ...open, messages: mergeMessages(open.messages, [a.msg]) };
       }
       const chats = bumpToTop(
         withChat(s, a.chatId, (c) => ({ ...c, unread: 0, last: { text: a.msg.text, out: true, date: a.msg.date, media: a.msg.media } })),
@@ -446,9 +446,19 @@ export function apply(s: State, a: Action): [State, Effect[]] {
   }
 }
 
+// reactions changed on a message: the open chat and any cached history of it
+export function setReactions(s: State, chatId: string, msgId: number, reactions: Reaction[]): State {
+  const patch = (msgs: Msg[]) => msgs.map((m) => (m.id === msgId ? { ...m, reactions: reactions.length ? reactions : undefined } : m));
+  const prefix = `${s.account}:${chatId}`;
+  const history = Object.fromEntries(Object.entries(s.history).map(([k, v]) => [k, k === prefix || k.startsWith(`${prefix}#`) ? patch(v) : v]));
+  const open = s.open?.chatId === chatId ? { ...s.open, messages: patch(s.open.messages) } : s.open;
+  return { ...s, open, history };
+}
+
 function applyEvent(s: State, e: SourceEvent): [State, Effect[]] {
   if (e.type === "online") return [{ ...s, online: e.online }, e.online ? [{ type: "loadChats" }] : []];
   if (e.type === "read") return [{ ...s, chats: withChat(s, e.chatId, (c) => ({ ...c, unread: 0, mentions: 0 })) }, []];
+  if (e.type === "reactions") return [setReactions(s, e.chatId, e.msgId, e.reactions), []];
 
   const conv = msgConv(s, e.chatId, e.msg);
   const viewing = s.view === "chat" && openConv(s) === conv;
@@ -465,12 +475,11 @@ function applyEvent(s: State, e: SourceEvent): [State, Effect[]] {
 
   let open = s.open;
   if (open && openConv(s) === conv && open.latest && !open.messages.some((m) => m.id === e.msg.id)) {
-    const atEnd = open.sel === open.messages[open.messages.length - 1]?.id;
+    // on the input row you're at the bottom and see it arrive; on a message, it's counted below you
     open = {
       ...open,
       messages: mergeMessages(open.messages, [e.msg]),
-      sel: atEnd ? e.msg.id : open.sel,
-      newBelow: atEnd ? open.newBelow : open.newBelow + 1,
+      newBelow: open.sel === undefined ? open.newBelow : open.newBelow + 1,
     };
     if (viewing && !e.msg.out) {
       effects.push(open.topicId !== undefined ? { type: "markRead", chatId: e.chatId, topic: { id: open.topicId, maxId: e.msg.id } } : { type: "markRead", chatId: e.chatId });

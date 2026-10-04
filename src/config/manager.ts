@@ -12,6 +12,7 @@ export interface Config {
   appHash?: string;
   wss?: string;
   images?: string; // tui image protocol: auto | kitty | sixel | blocks
+  tuiAccount?: string; // the account the tui last showed; the cli's active account stays separate
 }
 
 function ensureConfigDir() {

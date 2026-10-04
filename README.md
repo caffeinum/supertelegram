@@ -52,8 +52,8 @@ it's modal like vim, so letters never land in a message by accident:
 |---|---|
 | move / scroll | `j` `k` (the view scrolls only near the edge) · `ctrl-d` `ctrl-u` half a page · `gg` (loads older) `G` |
 | open / back | `enter` · `h` / `esc` |
-| write | `i` (or `enter` in a chat) · `enter` sends · `alt-enter` newline · `esc` keeps the draft |
-| reply / media / copy | `r` reply · `f` forward (pick a chat, newest first) · `v` show image / video preview inline · `V` full screen · `t` transcribe a voice message or video note · `o` open (file → its app, link → browser, location → maps) · `gx` open link · `y` copy text |
+| write | a chat opens with the cursor on your input: `enter` writes · `k` picks a message, then `enter` replies to it · `i` always writes new · `enter` sends · `alt-enter` newline · `esc` keeps the draft |
+| react / forward / media | `r` react (picker; again to remove) · `f` forward (pick a chat, newest first) · `v` show image / video preview inline · `V` full screen · `t` transcribe a voice message or video note · `o` open (file → its app, link → browser, location → maps) · `gx` open link · `y` copy text |
 | image | `ctrl-v` pastes the clipboard image (or drag a file in) as an attachment chip |
 | go to | `gc` chat… · `gs` search everywhere · `gu` next unread · `gi` chat list · `gm` saved messages · `ga` account |
 | forums | a forum group opens on its topics (`/` filters them) · `enter` opens a topic · `h` back to the topics — messages, drafts and sends stay inside the topic |
@@ -69,6 +69,7 @@ it's modal like vim, so letters never land in a message by accident:
 - images draw with unicode blocks by default (works everywhere); in the full-screen viewer `p` switches to kitty / sixel
   if your terminal draws those (`telegram config set images kitty`)
 - transcription uses telegram's own speech-to-text: telegram premium, or the few free trials it gives otherwise
+- the tui reopens the account you last switched to (`ga`); the cli's active account (`telegram switch`) stays separate
 - opening a chat marks it read; moving through the list never does
 - a draft belongs to its chat: switching chats, incoming messages or reordering can't send it elsewhere
 - a failed send puts the text back in the prompt and is never retried

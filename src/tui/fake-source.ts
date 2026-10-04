@@ -75,6 +75,9 @@ export class FakeSource implements DataSource {
     (this.messages[chatId] ??= []).push(msg);
     return msg;
   }
+  async react(chatId: string, msgId: number, emoji: string | undefined) {
+    this.calls.push({ method: "react", args: [chatId, msgId, emoji] });
+  }
   async forward(fromChatId: string, msgIds: number[], toChatId: string) {
     this.calls.push({ method: "forward", args: [fromChatId, msgIds, toChatId, this.accountName] });
   }

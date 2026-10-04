@@ -53,6 +53,13 @@ export interface Msg {
   urls?: string[]; // links in the text, including hidden ones behind link text
   topicId?: number; // forum topic this message belongs to (1 = General)
   album?: string; // telegram's grouped_id: photos/videos sent together, one message each
+  reactions?: Reaction[];
+}
+
+export interface Reaction {
+  emoji: string; // custom emoji show as ✦, paid stars as ⭐
+  count: number;
+  mine: boolean;
 }
 
 export interface Topic {
@@ -72,6 +79,7 @@ export interface SearchHit {
 export type SourceEvent =
   | { type: "message"; chatId: string; msg: Msg }
   | { type: "read"; chatId: string }
+  | { type: "reactions"; chatId: string; msgId: number; reactions: Reaction[] }
   | { type: "online"; online: boolean };
 
 export interface SendOpts {
@@ -97,6 +105,8 @@ export interface DataSource {
   topics(chatId: string): Promise<Topic[]>;
   send(chatId: string, text: string, opts: SendOpts): Promise<Msg>;
   forward(fromChatId: string, msgIds: number[], toChatId: string): Promise<void>;
+  // set your reaction on a message (an empty emoji removes it)
+  react(chatId: string, msgId: number, emoji: string | undefined): Promise<void>;
   markRead(chatId: string, topic?: { id: number; maxId: number }): Promise<void>;
   markUnread(chatId: string): Promise<void>;
   search(query: string, chatId?: string): Promise<SearchHit[]>;

@@ -3,7 +3,7 @@
 // browser and crashes on window.location (0.13.0 shipped offline because of this)
 import "telegram/platform";
 import { createCliRenderer } from "@opentui/core";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { inspect } from "node:util";
@@ -21,6 +21,8 @@ import type { DataSource } from "./types";
 const LOG = join(homedir(), ".supertelegram", "tui.log");
 
 function redirectConsole(): () => void {
+  // owner-only even if an older version created it world-readable (it can hold chat details)
+  if (existsSync(LOG)) chmodSync(LOG, 0o600);
   const saved = { log: console.log, info: console.info, warn: console.warn, error: console.error, debug: console.debug };
   const write = (level: string) => (...args: unknown[]) => {
     const line = args.map((a) => (a instanceof Error ? a.stack ?? a.message : typeof a === "string" ? a : inspect(a))).join(" ");
@@ -32,7 +34,10 @@ function redirectConsole(): () => void {
 
 function lazySource(account: string | undefined): DataSource {
   migrateLegacyIfNeeded();
-  const name = account ?? getCurrentAccount() ?? "default";
+  // -a wins; then the account the tui showed last; then the cli's active one
+  const last = getConfig().tuiAccount;
+  const known = listAccounts().map((a) => a.name);
+  const name = account ?? (last && known.includes(last) ? last : undefined) ?? getCurrentAccount() ?? "default";
   const meta = listAccounts().find((a) => a.name === name)?.meta;
   return new LazySource(name, meta?.username ? `@${meta.username}` : (meta?.name ?? ""), listAccounts().map((a) => a.name));
 }

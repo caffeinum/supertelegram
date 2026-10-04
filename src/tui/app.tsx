@@ -54,7 +54,10 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
       if (e.type === "switchAccount") {
         const p = source.switchAccount(e.name);
         switching.current = p.catch(() => undefined);
-        return p.then(() => act({ type: "accountSwitched", account: e.name, label: source.accountLabel() }), fail0(`couldn't switch to ${e.name}`));
+        return p.then(() => {
+          act({ type: "accountSwitched", account: e.name, label: source.accountLabel() });
+          saveSetting("tuiAccount", e.name); // open here next time
+        }, fail0(`couldn't switch to ${e.name}`));
       }
       if (e.type !== "saveDrafts" && e.type !== "quit" && e.type !== "copy" && e.type !== "warmAccounts") await switching.current;
       const fail = (what: string) => (err: unknown) => act({ type: "toast", text: `${what}: ${message(err)}`, error: true });
@@ -132,6 +135,8 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
         }
         case "markRead":
           return source.markRead(e.chatId, e.topic).catch(fail("couldn't mark read"));
+        case "react":
+          return source.react(e.chatId, e.msgId, e.emoji).catch(fail("couldn't react"));
         case "forward":
           return source
             .forward(e.fromChatId, e.msgIds, e.toChatId)

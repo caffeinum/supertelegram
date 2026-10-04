@@ -1,5 +1,7 @@
 import * as ed from "./editor";
+import type { Reaction } from "./types";
 import {
+  setReactions,
   convId,
   openConv,
   visibleTopics,
@@ -105,7 +107,7 @@ function openConversation(s: State, chatId: string, topicId: number | undefined,
       ...s,
       view: "chat",
       mode: "normal",
-      open: { chatId, topicId, topicTitle, markOnLoad, messages: cached, sel: cached[cached.length - 1]?.id, loading: cached.length === 0, atStart: false, latest: true, newBelow: 0 },
+      open: { chatId, topicId, topicTitle, markOnLoad, messages: cached, sel: undefined, loading: cached.length === 0, atStart: false, latest: true, newBelow: 0 },
     },
     [{ type: "openChat", chatId, topicId, markRead }],
   ];
@@ -143,18 +145,21 @@ function moveList(s: State, delta: number | "top" | "bottom"): Result {
 
 function moveChat(s: State, delta: number | "top" | "bottom"): Result {
   const o = s.open;
-  if (!o || !o.messages.length) return [s, []];
+  if (!o) return [s, []];
   if (delta === "bottom") {
     if (!o.latest) return [{ ...s, open: { ...o, loading: true } }, [{ type: "openChat", chatId: o.chatId, topicId: o.topicId, markRead: false }]];
-    return [{ ...s, open: { ...o, sel: o.messages[o.messages.length - 1]!.id, newBelow: 0 } }, []];
+    return [{ ...s, open: { ...o, sel: undefined, newBelow: 0 } }, []];
   }
-  const i = Math.max(0, o.messages.findIndex((m) => m.id === o.sel));
-  const j = delta === "top" ? 0 : Math.min(o.messages.length - 1, Math.max(0, i + delta));
+  if (!o.messages.length) return [s, []];
+  // positions 0..n-1 are messages, n is your input row
+  const n = o.messages.length;
+  const i = o.sel === undefined ? n : Math.max(0, o.messages.findIndex((m) => m.id === o.sel));
+  const j = delta === "top" ? 0 : Math.min(n, Math.max(0, i + delta));
   const effects: Effect[] = [];
   const reachedTop = (delta === "top" || i + (delta as number) < 0 || j === 0) && !o.atStart && !o.loading;
   if (reachedTop) effects.push({ type: "loadOlder", chatId: o.chatId, topicId: o.topicId, before: o.messages[0]!.id });
-  const atEnd = j === o.messages.length - 1;
-  return [{ ...s, open: { ...o, sel: o.messages[j]!.id, loading: o.loading || reachedTop, newBelow: atEnd ? 0 : o.newBelow } }, effects];
+  const sel = j === n ? undefined : o.messages[j]!.id;
+  return [{ ...s, open: { ...o, sel, loading: o.loading || reachedTop, newBelow: j >= n - 1 ? 0 : o.newBelow } }, effects];
 }
 
 function moveTopics(s: State, delta: number | "top" | "bottom"): Result {
@@ -319,7 +324,7 @@ export const COMMANDS: Command[] = [
     run: (s) => (s.topics?.sel !== undefined ? openTopic(s, s.topics.chatId, s.topics.sel) : [s, []]),
   },
   { id: "clear-filter", title: "clear filter", keys: ["escape"], views: ["list"], hidden: true, run: (s) => [{ ...s, filter: "" }, []] },
-  { id: "insert", title: "write a message", keys: ["i", "a", "enter"], views: ["chat"], hidden: true, run: (s) => [{ ...s, mode: "insert" }, []] },
+  { id: "insert", title: "write a new message", keys: ["i", "a"], views: ["chat"], hidden: true, run: (s) => [{ ...s, mode: "insert" }, []] },
 
   // palette commands
   { id: "palette", title: "command palette", keys: ["ctrl-k", ":"], views: ALL, run: palette("all") },
@@ -340,15 +345,22 @@ export const COMMANDS: Command[] = [
   },
   {
     id: "reply",
-    title: "reply to selected message",
-    keys: ["r"],
+    title: "reply to the selected message (on your input: write)",
+    keys: ["enter"],
     views: ["chat"],
     run: (s) => {
       const m = selectedMsg(s);
-      if (!m) return toast(s, "select a message first (j/k)", true);
+      if (!m) return [{ ...s, mode: "insert" }, []];
       const [s2, fx] = withDraft(s, (d) => ({ ...d, replyTo: m.id }));
       return [{ ...s2, mode: "insert" }, fx];
     },
+  },
+  {
+    id: "react",
+    title: "react to the selected message…",
+    keys: ["r"],
+    views: ["chat"],
+    run: (s) => (selectedMsg(s) ? palette("react")(s) : toast(s, "select a message to react to (k)", true)),
   },
   { id: "paste-image", title: "paste image from clipboard", keys: ["ctrl-v"], views: ["chat"], run: (s) => pasteImage({ ...s, mode: "insert" }) },
   { id: "attach", title: "attach a file…", keys: [], views: ["chat"], run: palette("file") },
@@ -645,6 +657,19 @@ export interface PaletteEntry {
   run: (s: State) => Result;
 }
 
+// telegram's standard free reactions, with names to type in the picker
+export const REACTIONS: [string, string][] = [
+  ["👍", "thumbs up like"], ["❤️", "heart love"], ["🔥", "fire"], ["😂", "laugh joy"], ["😮", "wow surprised"], ["😢", "sad cry"],
+  ["🙏", "thanks pray"], ["👎", "thumbs down dislike"], ["🎉", "party tada"], ["🤔", "thinking"], ["👀", "eyes look"], ["💯", "hundred"],
+  ["👏", "clap"], ["🤝", "handshake deal"], ["😁", "grin"], ["🤯", "mind blown"], ["😱", "scream"], ["🤡", "clown"], ["💩", "poo"], ["🐳", "whale"],
+];
+
+function addMine(list: Reaction[], emoji: string): Reaction[] {
+  const at = list.findIndex((r) => r.emoji === emoji);
+  if (at === -1) return [...list, { emoji, count: 1, mine: true }];
+  return list.map((r, i) => (i === at ? { ...r, count: r.count + 1, mine: true } : r));
+}
+
 export function fuzzy(query: string, text: string): number {
   const q = query.toLowerCase();
   const t = text.toLowerCase();
@@ -694,6 +719,23 @@ export function paletteEntries(s: State): PaletteEntry[] {
       }));
   }
   if (p.kind === "chats") return chatEntries(s, q);
+  if (p.kind === "react") {
+    const m = selectedMsg(s);
+    if (!m || !s.open) return [];
+    const chatId = s.open.chatId;
+    const mine = m.reactions?.find((r) => r.mine)?.emoji;
+    return REACTIONS.filter(([, name]) => fuzzy(q, name) > 0).map(([emoji, name]) => ({
+      label: `${emoji}  ${name}`,
+      hint: emoji === mine ? "yours · enter removes" : "",
+      run: (s2: State): Result => {
+        const next = emoji === mine ? undefined : emoji;
+        // show it right away; telegram's update confirms it
+        const others = (m.reactions ?? []).map((r) => (r.mine ? { ...r, count: r.count - 1, mine: false } : r)).filter((r) => r.count > 0);
+        const updated = next ? addMine(others, next) : others;
+        return [{ ...setReactions(s2, chatId, m.id, updated), palette: undefined }, [{ type: "react", chatId, msgId: m.id, emoji: next }]];
+      },
+    }));
+  }
   if (p.kind === "folders") {
     return s.folders
       .filter((f) => fuzzy(q, f.title) > 0)
