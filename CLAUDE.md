@@ -51,6 +51,8 @@ drive it through a real tty with `expect`. send keystrokes separately with a pau
 - kitty graphics drew blank in aleks's cmux; blocks is the default image protocol.
 - test files import `telegram/platform` first (renderers set global.window; gramjs loaded after them takes the browser path).
 - transcription: messages.TranscribeAudio answers pending first; poll until done (src/client/transcribe.ts). premium only (caffeinum has it, default doesn't). never print transcripts while testing — they're aleks's private messages.
+- forums: a conversation is chat or chat#topic (`convId`); drafts, history cache and sends key on it. topic of a message = replyTo.forumTopic → replyToTopId ?? replyToMsgId; none = General (1). sending into a topic = replyTo the topic root (+ topMsgId when replying inside it). topics page 100 at a time (aleks's "ai" forum has ~147).
+- never send test messages into the "ai" forum — aleks's agents live there.
 - downloads must keep the file extension (`defaultFileName`), or `open` hands a jpeg to TextEdit.
 - real terminals send DEL (0x7f) for backspace; the opentui mock sends \b. classify keys by name before treating a byte as text.
 - colors: only `C.fg`/`C.bg` (terminal defaults) and palette indexes — opentui's implicit text color is white rgb, invisible on light themes (aleks runs a light cmux theme). the theme-safe test fails on any rgb color or inverse video.

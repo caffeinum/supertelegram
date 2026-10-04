@@ -45,9 +45,10 @@ export class LazySource implements DataSource {
   peek = async (account: string, top: number) => (await this.src()).peek(account, top);
   listChats = async (limit: number) => (await this.src()).listChats(limit);
   folderExtras = async (folders: Folder[], have: string[]): Promise<ChatSummary[]> => (await this.src()).folderExtras(folders, have);
-  history = async (chatId: string, opts: { limit: number; before?: number }) => (await this.src()).history(chatId, opts);
+  history = async (chatId: string, opts: { limit: number; before?: number; topicId?: number }) => (await this.src()).history(chatId, opts);
+  topics = async (chatId: string) => (await this.src()).topics(chatId);
   send = async (chatId: string, text: string, opts: SendOpts) => (await this.src()).send(chatId, text, opts);
-  markRead = async (chatId: string) => (await this.src()).markRead(chatId);
+  markRead = async (chatId: string, topic?: { id: number; maxId: number }) => (await this.src()).markRead(chatId, topic);
   forward = async (from: string, ids: number[], to: string) => (await this.src()).forward(from, ids, to);
   markUnread = async (chatId: string) => (await this.src()).markUnread(chatId);
   search = async (query: string, chatId?: string) => (await this.src()).search(query, chatId);

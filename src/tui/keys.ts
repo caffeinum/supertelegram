@@ -1,5 +1,8 @@
 import * as ed from "./editor";
 import {
+  convId,
+  openConv,
+  visibleTopics,
   IMAGE_PROTOCOLS,
   hasFile,
   isImage,
@@ -40,7 +43,7 @@ export interface Command {
   run: (s: State) => Result;
 }
 
-const ALL: View[] = ["list", "chat", "results"];
+const ALL: View[] = ["list", "topics", "chat", "results"];
 
 // keys that are never text, whatever byte the terminal used (backspace arrives as DEL 0x7f)
 const NAMED = new Set(["backspace", "delete", "tab", "escape", "up", "down", "left", "right", "home", "end", "pageup", "pagedown", "insert", "return", "enter", "linefeed"]);
@@ -70,24 +73,41 @@ function toast(s: State, text: string, error = false): Result {
 
 export function openChat(s: State, chatId: string): Result {
   const chat = chatById(s, chatId);
+  // a forum opens on its topics; you read and write inside one topic
+  if (chat?.forum) {
+    const same = s.topics?.chatId === chatId;
+    return [
+      { ...s, filter: "", view: "topics", mode: "normal", listSel: chatId, topics: same ? { ...s.topics!, loading: true } : { chatId, items: [], loading: true } },
+      [{ type: "loadTopics", chatId }],
+    ];
+  }
   const markRead = Boolean(chat && chat.unread > 0);
   const chats = markRead ? s.chats.map((c) => (c.id === chatId ? { ...c, unread: 0, mentions: 0 } : c)) : s.chats;
-  if (s.open?.chatId === chatId && s.open.messages.length) {
+  if (s.open?.chatId === chatId && s.open.topicId === undefined && s.open.messages.length) {
     return [{ ...s, chats, filter: "", view: "chat", mode: "normal", listSel: chatId, open: { ...s.open, newBelow: 0 } }, markRead ? [{ type: "markRead", chatId }] : []];
   }
+  return openConversation({ ...s, chats, filter: "" /* a search got you here; going back shows the whole list */, listSel: chatId }, chatId, undefined, undefined, markRead);
+}
+
+export function openTopic(s: State, chatId: string, topicId: number): Result {
+  const topic = s.topics?.items.find((t) => t.id === topicId);
+  if (s.open?.chatId === chatId && s.open.topicId === topicId && s.open.messages.length) {
+    return [{ ...s, filter: "", view: "chat", mode: "normal", open: { ...s.open, newBelow: 0 } }, []];
+  }
+  return openConversation({ ...s, filter: "" }, chatId, topicId, topic?.title, false, Boolean(topic && topic.unread > 0));
+}
+
+function openConversation(s: State, chatId: string, topicId: number | undefined, topicTitle: string | undefined, markRead: boolean, markOnLoad = false): Result {
   // preloaded? paint it now; the fetch below only refreshes
-  const cached = s.history[draftKey(s, chatId)] ?? [];
+  const cached = s.history[draftKey(s, convId(chatId, topicId))] ?? [];
   return [
     {
       ...s,
-      chats,
-      filter: "", // a search got you here; going back shows the whole list
       view: "chat",
       mode: "normal",
-      listSel: chatId,
-      open: { chatId, messages: cached, sel: cached[cached.length - 1]?.id, loading: cached.length === 0, atStart: false, latest: true, newBelow: 0 },
+      open: { chatId, topicId, topicTitle, markOnLoad, messages: cached, sel: cached[cached.length - 1]?.id, loading: cached.length === 0, atStart: false, latest: true, newBelow: 0 },
     },
-    [{ type: "openChat", chatId, markRead }],
+    [{ type: "openChat", chatId, topicId, markRead }],
   ];
 }
 
@@ -125,20 +145,29 @@ function moveChat(s: State, delta: number | "top" | "bottom"): Result {
   const o = s.open;
   if (!o || !o.messages.length) return [s, []];
   if (delta === "bottom") {
-    if (!o.latest) return [{ ...s, open: { ...o, loading: true } }, [{ type: "openChat", chatId: o.chatId, markRead: false }]];
+    if (!o.latest) return [{ ...s, open: { ...o, loading: true } }, [{ type: "openChat", chatId: o.chatId, topicId: o.topicId, markRead: false }]];
     return [{ ...s, open: { ...o, sel: o.messages[o.messages.length - 1]!.id, newBelow: 0 } }, []];
   }
   const i = Math.max(0, o.messages.findIndex((m) => m.id === o.sel));
   const j = delta === "top" ? 0 : Math.min(o.messages.length - 1, Math.max(0, i + delta));
   const effects: Effect[] = [];
   const reachedTop = (delta === "top" || i + (delta as number) < 0 || j === 0) && !o.atStart && !o.loading;
-  if (reachedTop) effects.push({ type: "loadOlder", chatId: o.chatId, before: o.messages[0]!.id });
+  if (reachedTop) effects.push({ type: "loadOlder", chatId: o.chatId, topicId: o.topicId, before: o.messages[0]!.id });
   const atEnd = j === o.messages.length - 1;
   return [{ ...s, open: { ...o, sel: o.messages[j]!.id, loading: o.loading || reachedTop, newBelow: atEnd ? 0 : o.newBelow } }, effects];
 }
 
+function moveTopics(s: State, delta: number | "top" | "bottom"): Result {
+  const items = visibleTopics(s);
+  if (!s.topics || !items.length) return [s, []];
+  const i = Math.max(0, items.findIndex((t) => t.id === s.topics!.sel));
+  const j = delta === "top" ? 0 : delta === "bottom" ? items.length - 1 : Math.min(items.length - 1, Math.max(0, i + delta));
+  return [{ ...s, topics: { ...s.topics, sel: items[j]!.id } }, []];
+}
+
 function move(s: State, delta: number | "top" | "bottom"): Result {
   if (s.view === "chat") return moveChat(s, delta);
+  if (s.view === "topics") return moveTopics(s, delta);
   if (s.view === "results" && s.results) {
     const n = s.results.hits.length;
     const sel = delta === "top" ? 0 : delta === "bottom" ? n - 1 : Math.min(n - 1, Math.max(0, s.results.sel + delta));
@@ -155,12 +184,13 @@ function selectedMsg(s: State) {
 
 function withDraft(s: State, f: (d: Draft) => Draft): Result {
   if (!s.open) return [s, []];
-  const key = draftKey(s, s.open.chatId);
+  const key = draftKey(s, openConv(s));
   return [{ ...s, drafts: { ...s.drafts, [key]: f(s.drafts[key] ?? emptyDraft()) } }, [{ type: "saveDrafts" }]];
 }
 
 function back(s: State): Result {
   if (s.view === "results") return [{ ...s, view: s.open && s.results?.scope ? "chat" : "list", results: undefined }, []];
+  if (s.view === "chat" && s.open?.topicId !== undefined && s.topics?.chatId === s.open.chatId) return [{ ...s, view: "topics", mode: "normal" }, []];
   return [{ ...s, view: "list", mode: "normal" }, []];
 }
 
@@ -242,7 +272,7 @@ function viewerKey(s: State, t: string): Result {
 
 function pasteImage(s: State): Result {
   if (!s.open) return [s, []];
-  return [s, [{ type: "pasteImage", key: draftKey(s, s.open.chatId), chatId: s.open.chatId }]];
+  return [s, [{ type: "pasteImage", key: draftKey(s, openConv(s)), chatId: s.open.chatId }]];
 }
 
 export const COMMANDS: Command[] = [
@@ -271,14 +301,23 @@ export const COMMANDS: Command[] = [
       const hit = s.results?.hits[s.results.sel];
       if (!hit) return [s, []];
       const chatId = hit.chat.id;
+      const topicId = chatById(s, chatId)?.forum ? (hit.msg.topicId ?? 1) : undefined;
       return [
-        { ...s, view: "chat", mode: "normal", listSel: chatId, open: { chatId, messages: [], loading: true, atStart: false, latest: false, newBelow: 0, sel: hit.msg.id } },
-        [{ type: "jumpTo", chatId, msgId: hit.msg.id }],
+        { ...s, view: "chat", mode: "normal", listSel: chatId, open: { chatId, topicId, messages: [], loading: true, atStart: false, latest: false, newBelow: 0, sel: hit.msg.id } },
+        [{ type: "jumpTo", chatId, topicId, msgId: hit.msg.id }],
       ];
     },
   },
-  { id: "filter", title: "filter chats", keys: ["/"], views: ["list"], hidden: true, run: (s) => [{ ...s, mode: "filter" }, []] },
-  { id: "back", title: "back", keys: ["h", "escape", "backspace", "q"], views: ["chat", "results"], hidden: true, run: back },
+  { id: "filter", title: "filter chats", keys: ["/"], views: ["list", "topics"], hidden: true, run: (s) => [{ ...s, mode: "filter" }, []] },
+  { id: "back", title: "back", keys: ["h", "escape", "backspace", "q"], views: ["chat", "results", "topics"], hidden: true, run: back },
+  {
+    id: "open-topic",
+    title: "open topic",
+    keys: ["enter", "l", "o"],
+    views: ["topics"],
+    hidden: true,
+    run: (s) => (s.topics?.sel !== undefined ? openTopic(s, s.topics.chatId, s.topics.sel) : [s, []]),
+  },
   { id: "clear-filter", title: "clear filter", keys: ["escape"], views: ["list"], hidden: true, run: (s) => [{ ...s, filter: "" }, []] },
   { id: "insert", title: "write a message", keys: ["i", "a", "enter"], views: ["chat"], hidden: true, run: (s) => [{ ...s, mode: "insert" }, []] },
 
@@ -457,7 +496,14 @@ export const COMMANDS: Command[] = [
     title: "refresh",
     keys: ["ctrl-r"],
     views: ALL,
-    run: (s) => [s, [{ type: "loadChats" }, ...(s.view === "chat" && s.open ? [{ type: "openChat" as const, chatId: s.open.chatId, markRead: false }] : [])]],
+    run: (s) => [
+      s,
+      [
+        { type: "loadChats" },
+        ...(s.view === "chat" && s.open ? [{ type: "openChat" as const, chatId: s.open.chatId, topicId: s.open.topicId, markRead: false }] : []),
+        ...(s.view === "topics" && s.topics ? [{ type: "loadTopics" as const, chatId: s.topics.chatId }] : []),
+      ],
+    ],
   },
   { id: "help", title: "keyboard shortcuts", keys: ["?"], views: ALL, run: (s) => [{ ...s, help: !s.help }, []] },
   { id: "quit", title: "quit (drafts are kept)", keys: ["ZZ"], views: ALL, run: quit },
@@ -556,17 +602,26 @@ function insertKey(s: State, k: Key, t: string): Result {
 
 function send(s: State): Result {
   if (!s.open || s.view !== "chat") return [s, []];
-  const key = draftKey(s, s.open.chatId);
+  const key = draftKey(s, openConv(s));
   const d = currentDraft(s);
   if (!d || (!d.text.trim() && !d.files.length)) return [s, []];
   if (s.outbox[key]) return toast(s, "still sending the previous message…");
   const drafts = { ...s.drafts };
   delete drafts[key];
   // the draft travels with its chat id: whatever happens to focus, it goes where it was typed
-  return [{ ...s, drafts, outbox: { ...s.outbox, [key]: d } }, [{ type: "send", key, chatId: s.open.chatId, draft: d }, { type: "saveDrafts" }]];
+  return [{ ...s, drafts, outbox: { ...s.outbox, [key]: d } }, [{ type: "send", key, chatId: s.open.chatId, topicId: s.open.topicId, draft: d }, { type: "saveDrafts" }]];
 }
 
 function filterKey(s: State, k: Key, t: string): Result {
+  if (s.view === "topics" && s.topics) {
+    if (t === "escape") return [{ ...s, mode: "normal", filter: "" }, []];
+    if (t === "enter") return [{ ...s, mode: "normal" }, []];
+    if (t === "down" || t === "ctrl-n") return moveTopics(s, 1);
+    if (t === "up" || t === "ctrl-p") return moveTopics(s, -1);
+    const filter = t === "backspace" ? [...s.filter].slice(0, -1).join("") : printable(k) ? s.filter + k.sequence : s.filter;
+    const next = { ...s, filter };
+    return [{ ...next, topics: { ...s.topics, sel: visibleTopics(next)[0]?.id ?? s.topics.sel } }, []];
+  }
   if (t === "escape") return [{ ...s, mode: "normal", filter: "" }, []];
   // picking a forward target: enter after typing the name forwards straight away
   if (t === "enter") return s.forward ? handleKey({ ...s, mode: "normal" }, k) : [{ ...s, mode: "normal" }, []];
@@ -669,7 +724,7 @@ export function paletteEntries(s: State): PaletteEntry[] {
     if (!q.trim()) return [];
     const chatId = s.open?.chatId;
     if (!chatId) return [];
-    return [{ label: `attach ${q}`, hint: "enter", run: (s2: State): Result => [{ ...s2, palette: undefined }, [{ type: "attachPath", path: q, key: draftKey(s2, chatId), chatId }]] }];
+    return [{ label: `attach ${q}`, hint: "enter", run: (s2: State): Result => [{ ...s2, palette: undefined }, [{ type: "attachPath", path: q, key: draftKey(s2, openConv(s2)), chatId }]] }];
   }
 
   // vim muscle memory: ":q" / ":wq" quit

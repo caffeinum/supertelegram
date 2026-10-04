@@ -13,7 +13,7 @@ import { chatType, displayName, mediaLabel, peerId, username } from "../cli/form
 import { CliError } from "../cli/errors";
 import { defaultFileName } from "../cli/chat";
 import { transcribe } from "../client/transcribe";
-import type { ChatPool, ChatSummary, DataSource, Folder, Msg, SearchHit, SendOpts, SourceEvent } from "./types";
+import type { ChatPool, ChatSummary, DataSource, Folder, Msg, SearchHit, SendOpts, SourceEvent, Topic } from "./types";
 import { Dialog as TgDialog } from "telegram/tl/custom/dialog";
 import { ALL_CHATS } from "./folders";
 
@@ -44,9 +44,19 @@ function linksOf(m: TgMessage): string[] | undefined {
   return found.size ? [...found] : undefined;
 }
 
+// which forum topic a message is in: the thread root it replies under, or General (no topic header)
+function topicOf(m: TgMessage): number | undefined {
+  const r = m.replyTo;
+  if (!(r instanceof Api.MessageReplyHeader) || !r.forumTopic) return undefined;
+  return r.replyToTopId ?? r.replyToMsgId;
+}
+
 export function toMsg(m: TgMessage, sender: Entity | undefined, me?: string): Msg {
   const service = m instanceof Api.MessageService;
+  const topicId = topicOf(m);
   return {
+    topicId,
+    album: !service && m.groupedId ? m.groupedId.toString() : undefined,
     urls: linksOf(m),
     id: m.id,
     date: m.date,
@@ -57,7 +67,8 @@ export function toMsg(m: TgMessage, sender: Entity | undefined, me?: string): Ms
     text: service ? "" : m.message,
     media: service ? undefined : mediaLabel(m),
     action: service ? m.action.className.replace(/^MessageAction/, "") : undefined,
-    replyTo: m.replyTo?.replyToMsgId,
+    // inside a topic, "replying" to the topic root just means "posted in the topic"
+    replyTo: m.replyTo?.replyToMsgId !== undefined && m.replyTo.replyToMsgId !== topicId ? m.replyTo.replyToMsgId : undefined,
   };
 }
 
@@ -72,6 +83,7 @@ function toSummary(d: Dialog, me: string): ChatSummary | undefined {
     title: self ? "Saved Messages" : d.title || displayName(d.entity),
     self,
     contact: d.entity instanceof Api.User ? Boolean(d.entity.contact) : undefined,
+    forum: d.entity instanceof Api.Channel ? Boolean(d.entity.forum) : undefined,
     archived: d.archived || d.folderId === 1,
     kind: chatType(d.entity),
     username: username(d.entity),
@@ -210,6 +222,7 @@ async function loadExtras(client: TelegramClient, me: string, entities: Map<stri
 }
 
 const EXTRAS_GAP_MS = 2000;
+const TOPIC_PAGES = 10; // up to 1000 topics
 
 
 export class GramSource implements DataSource {
@@ -320,19 +333,27 @@ export class GramSource implements DataSource {
     return loadExtras(this.client, this.me, this.entities, have);
   }
 
-  async history(chatId: string, opts: { limit: number; before?: number }): Promise<Msg[]> {
+  async history(chatId: string, opts: { limit: number; before?: number; topicId?: number }): Promise<Msg[]> {
     await this.ready;
     const e = await this.entity(chatId);
-    const msgs = (await this.client.getMessages(e, { limit: opts.limit, offsetId: opts.before ?? 0 })) as TgMessage[];
+    const msgs = (await this.client.getMessages(e, {
+      limit: opts.limit,
+      offsetId: opts.before ?? 0,
+      ...(opts.topicId !== undefined ? { replyTo: opts.topicId } : {}),
+    })) as TgMessage[];
     return msgs.map((m) => toMsg(m, m.sender as Entity | undefined, this.me)).reverse();
   }
 
   async send(chatId: string, text: string, opts: SendOpts): Promise<Msg> {
     await this.ready;
     const e = await this.entity(chatId);
+    // in a forum topic: a plain message replies to the topic root; a reply also names the topic. General (1) needs neither
+    const inTopic = opts.topicId !== undefined && opts.topicId !== 1;
+    const replyTo = opts.replyTo ?? (inTopic ? opts.topicId : undefined);
+    const topMsgId = inTopic && opts.replyTo !== undefined ? opts.topicId : undefined;
     const sent = opts.file
-      ? await this.client.sendFile(e, { file: opts.file, caption: text, replyTo: opts.replyTo })
-      : await this.client.sendMessage(e, { message: text, replyTo: opts.replyTo });
+      ? await this.client.sendFile(e, { file: opts.file, caption: text, replyTo, topMsgId })
+      : await this.client.sendMessage(e, { message: text, replyTo, topMsgId });
     return toMsg(sent, undefined, this.me);
   }
 
@@ -341,9 +362,53 @@ export class GramSource implements DataSource {
     await this.client.forwardMessages(await this.entity(toChatId), { messages: msgIds, fromPeer: await this.entity(fromChatId) });
   }
 
-  async markRead(chatId: string) {
+  async markRead(chatId: string, topic?: { id: number; maxId: number }) {
     await this.ready;
-    await this.client.markAsRead(await this.entity(chatId));
+    const e = await this.entity(chatId);
+    if (!topic) return void (await this.client.markAsRead(e));
+    await this.client.invoke(new Api.messages.ReadDiscussion({ peer: e, msgId: topic.id, readMaxId: topic.maxId }));
+  }
+
+  async topics(chatId: string): Promise<Topic[]> {
+    await this.ready;
+    const e = await this.entity(chatId);
+    // telegram pages topics 100 at a time; continue from the last one's top message until all are in
+    const byId = new Map<string, Entity>();
+    const tops = new Map<number, Api.Message>();
+    const all: Api.TypeForumTopic[] = [];
+    let offset = { date: 0, id: 0, topic: 0 };
+    for (let page = 0; page < TOPIC_PAGES; page++) {
+      const r = await this.client.invoke(new Api.channels.GetForumTopics({ channel: e, offsetDate: offset.date, offsetId: offset.id, offsetTopic: offset.topic, limit: 100 }));
+      for (const x of [...r.users, ...r.chats]) if (isEntity(x)) byId.set(utils.getPeerId(x).toString(), x);
+      for (const m of r.messages) if (m instanceof Api.Message || m instanceof Api.MessageService) tops.set(m.id, m as Api.Message);
+      const fresh = r.topics.filter((t) => !all.some((x) => x.id === t.id));
+      all.push(...fresh);
+      const last = r.topics[r.topics.length - 1];
+      if (!fresh.length || !(last instanceof Api.ForumTopic) || all.length >= r.count) break;
+      offset = { date: tops.get(last.topMessage)?.date ?? 0, id: last.topMessage, topic: last.id };
+    }
+    const out: Topic[] = [];
+    for (const t of all) {
+      if (!(t instanceof Api.ForumTopic) || t.hidden) continue;
+      const m = tops.get(t.topMessage) as TgMessage | undefined;
+      const from = m?.fromId ? byId.get(utils.getPeerId(m.fromId).toString()) : undefined;
+      out.push({
+        id: t.id,
+        title: t.title,
+        unread: t.unreadCount,
+        pinned: t.pinned,
+        closed: t.closed,
+        last: m
+          ? {
+              text: m instanceof Api.MessageService ? `[${m.action.className.replace(/^MessageAction/, "")}]` : m.message,
+              from: from ? displayName(from) : undefined,
+              date: m.date,
+              out: Boolean(m.out) || m.senderId?.toString() === this.me,
+            }
+          : undefined,
+      });
+    }
+    return out;
   }
 
   async markUnread(chatId: string) {

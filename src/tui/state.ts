@@ -1,7 +1,7 @@
-import type { ChatSummary, Folder, Msg, SearchHit, SourceEvent } from "./types";
+import type { ChatSummary, Folder, Msg, SearchHit, SourceEvent, Topic } from "./types";
 import { ALL_CHATS, folderChats } from "./folders";
 
-export type View = "list" | "chat" | "results";
+export type View = "list" | "topics" | "chat" | "results";
 export type ImageProtocol = "auto" | "kitty" | "sixel" | "blocks";
 export const IMAGE_PROTOCOLS: ImageProtocol[] = ["kitty", "sixel", "blocks", "auto"];
 export type Mode = "normal" | "insert" | "filter";
@@ -16,6 +16,9 @@ export interface Draft {
 
 export interface OpenChat {
   chatId: string;
+  topicId?: number; // inside a forum topic
+  topicTitle?: string;
+  markOnLoad?: boolean; // a topic with unread messages: mark read up to the newest once loaded
   messages: Msg[];
   sel?: number; // message id
   loading: boolean;
@@ -37,6 +40,7 @@ export interface State {
   filter: string;
   listSel?: string; // chat id — follows the chat, never the row
   open?: OpenChat;
+  topics?: { chatId: string; items: Topic[]; sel?: number; loading: boolean }; // a forum's topic list
   results?: { query: string; scope?: string; hits: SearchHit[]; sel: number; loading: boolean };
   drafts: Record<string, Draft>; // `${account}:${chatId}`
   history: Record<string, Msg[]>; // preloaded messages per `${account}:${chatId}`, newest page
@@ -64,11 +68,12 @@ export type Effect =
   | { type: "prefetch"; chatIds: string[] }
   | { type: "loadExtras" }
   | { type: "warmAccounts"; accounts: string[] }
-  | { type: "openChat"; chatId: string; markRead: boolean }
-  | { type: "loadOlder"; chatId: string; before: number }
-  | { type: "jumpTo"; chatId: string; msgId: number }
-  | { type: "send"; key: string; chatId: string; draft: Draft }
-  | { type: "markRead"; chatId: string }
+  | { type: "openChat"; chatId: string; topicId?: number; markRead: boolean }
+  | { type: "loadTopics"; chatId: string }
+  | { type: "loadOlder"; chatId: string; topicId?: number; before: number }
+  | { type: "jumpTo"; chatId: string; topicId?: number; msgId: number }
+  | { type: "send"; key: string; chatId: string; topicId?: number; draft: Draft }
+  | { type: "markRead"; chatId: string; topic?: { id: number; maxId: number } }
   | { type: "forward"; fromChatId: string; msgIds: number[]; toChatId: string; toTitle: string }
   | { type: "markUnread"; chatId: string }
   | { type: "switchAccount"; name: string }
@@ -133,11 +138,20 @@ export function isSpeech(m: Msg | undefined): boolean {
   return Boolean(m?.media && /^(voice|video note)\b/.test(m.media));
 }
 
-export const draftKey = (s: State, chatId: string) => `${s.account}:${chatId}`;
+export const draftKey = (s: State, conv: string) => `${s.account}:${conv}`;
+
+// a conversation: a chat, or one topic of a forum. drafts, cached history and sends are per conversation
+export const convId = (chatId: string, topicId?: number) => (topicId === undefined ? chatId : `${chatId}#${topicId}`);
+export const openConv = (s: State) => (s.open ? convId(s.open.chatId, s.open.topicId) : "");
+
+// in a forum, a message without a topic header is in General (1)
+export function msgConv(s: State, chatId: string, m: Msg): string {
+  return chatById(s, chatId)?.forum ? convId(chatId, m.topicId ?? 1) : chatId;
+}
 export const emptyDraft = (): Draft => ({ text: "", cursor: 0, files: [] });
 
 export function currentDraft(s: State): Draft | undefined {
-  return s.open ? s.drafts[draftKey(s, s.open.chatId)] : undefined;
+  return s.open ? s.drafts[draftKey(s, openConv(s))] : undefined;
 }
 
 export function hasDraft(d: Draft | undefined): boolean {
@@ -168,7 +182,8 @@ export function visibleChats(s: State): ChatSummary[] {
 export type Action =
   | { type: "chatsLoaded"; chats: ChatSummary[]; folders: Folder[] }
   | { type: "chatsExtended"; account: string; chats: ChatSummary[] }
-  | { type: "historyLoaded"; chatId: string; msgs: Msg[]; mode: "replace" | "prepend"; select?: number; latest: boolean; limit: number }
+  | { type: "historyLoaded"; chatId: string; topicId?: number; msgs: Msg[]; mode: "replace" | "prepend"; select?: number; latest: boolean; limit: number }
+  | { type: "topicsLoaded"; chatId: string; items: Topic[] }
   | { type: "prefetched"; key: string; msgs: Msg[] }
   | { type: "accountWarmed"; account: string; label: string; chats: ChatSummary[]; folders: Folder[]; history: Record<string, Msg[]> }
   | { type: "historyFailed"; chatId: string; error: string }
@@ -188,14 +203,26 @@ export type Action =
 
 export const PREFETCH_TOP = 10;
 
+// telegram's order: pinned topics first, then by latest message
+export function sortTopics(items: Topic[]): Topic[] {
+  return [...items].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || (b.last?.date ?? 0) - (a.last?.date ?? 0));
+}
+
+export function visibleTopics(s: State): Topic[] {
+  const items = s.topics?.items ?? [];
+  const q = s.filter.toLowerCase();
+  return q ? items.filter((t) => t.title.toLowerCase().includes(q)) : items;
+}
+
 // messages we already know for a chat: shown instantly on open, refreshed in the background
-export function remember(s: State, chatId: string, msgs: Msg[]): Record<string, Msg[]> {
-  const key = draftKey(s, chatId);
+export function remember(s: State, conv: string, msgs: Msg[]): Record<string, Msg[]> {
+  const key = draftKey(s, conv);
   return { ...s.history, [key]: mergeMessages(s.history[key] ?? [], msgs).slice(-200) };
 }
 
+// chats worth preloading: not yet cached, and not forums (their history is per topic)
 export function uncached(s: State, ids: (string | undefined)[]): string[] {
-  return [...new Set(ids.filter((id): id is string => id !== undefined && !s.history[draftKey(s, id)]))];
+  return [...new Set(ids.filter((id): id is string => id !== undefined && !s.history[draftKey(s, id)] && !chatById(s, id)?.forum))];
 }
 
 function finishQuit(s: State, outbox: Record<string, Draft>): Effect[] {
@@ -267,7 +294,8 @@ export function apply(s: State, a: Action): [State, Effect[]] {
       return [{ ...s, history: { ...s.history, [a.key]: mergeMessages(known, a.msgs).slice(-200) } }, []];
     }
     case "historyLoaded": {
-      if (!s.open || s.open.chatId !== a.chatId) return [{ ...s, history: a.latest ? remember(s, a.chatId, a.msgs) : s.history }, []];
+      const conv = convId(a.chatId, a.topicId);
+      if (!s.open || openConv(s) !== conv) return [{ ...s, history: a.latest ? remember(s, conv, a.msgs) : s.history }, []];
       const o = s.open;
       const wasAtEnd = o.sel === undefined || o.sel === o.messages[o.messages.length - 1]?.id;
       // a refresh of a chat shown from cache merges in, so nothing jumps under the cursor
@@ -284,7 +312,7 @@ export function apply(s: State, a: Action): [State, Effect[]] {
       return [
         {
           ...s,
-          history: a.latest ? remember(s, a.chatId, a.msgs) : s.history,
+          history: a.latest ? remember(s, conv, a.msgs) : s.history,
           open: {
             ...o,
             messages,
@@ -293,10 +321,23 @@ export function apply(s: State, a: Action): [State, Effect[]] {
             atStart: a.mode === "prepend" || !refreshing ? a.msgs.length < a.limit : o.atStart,
             latest: a.mode === "replace" ? a.latest : o.latest,
             newBelow: a.mode === "replace" ? 0 : o.newBelow,
+            markOnLoad: false,
           },
+          topics:
+            o.markOnLoad && s.topics?.chatId === a.chatId
+              ? { ...s.topics, items: s.topics.items.map((t) => (t.id === a.topicId ? { ...t, unread: 0 } : t)) }
+              : s.topics,
         },
-        [],
+        o.markOnLoad && a.topicId !== undefined && messages.length
+          ? [{ type: "markRead", chatId: a.chatId, topic: { id: a.topicId, maxId: messages[messages.length - 1]!.id } }]
+          : [],
       ];
+    }
+    case "topicsLoaded": {
+      if (s.topics?.chatId !== a.chatId) return [s, []];
+      const items = sortTopics(a.items);
+      const sel = s.topics.sel !== undefined && items.some((t) => t.id === s.topics!.sel) ? s.topics.sel : items[0]?.id;
+      return [{ ...s, topics: { chatId: a.chatId, items, sel, loading: false } }, []];
     }
     case "historyFailed":
       return [
@@ -309,8 +350,9 @@ export function apply(s: State, a: Action): [State, Effect[]] {
       const done = finishQuit(s, outbox);
       // a send that lands after an account switch belongs to the old account's chat: don't touch this list
       if (!a.key.startsWith(`${s.account}:`)) return [{ ...s, outbox }, done];
+      const conv = msgConv(s, a.chatId, a.msg);
       let open = s.open;
-      if (open && open.chatId === a.chatId && open.latest) {
+      if (open && openConv(s) === conv && open.latest) {
         const atEnd = open.sel === open.messages[open.messages.length - 1]?.id;
         open = { ...open, messages: mergeMessages(open.messages, [a.msg]), sel: atEnd ? a.msg.id : open.sel };
       }
@@ -318,7 +360,7 @@ export function apply(s: State, a: Action): [State, Effect[]] {
         withChat(s, a.chatId, (c) => ({ ...c, unread: 0, last: { text: a.msg.text, out: true, date: a.msg.date, media: a.msg.media } })),
         a.chatId
       );
-      return [{ ...s, outbox, open, chats, history: remember(s, a.chatId, [a.msg]) }, done];
+      return [{ ...s, outbox, open, chats, history: remember(s, conv, [a.msg]) }, done];
     }
     case "sendFailed": {
       // never retried: put back what didn't go out (files already sent stay sent), and say what happened
@@ -390,6 +432,7 @@ export function apply(s: State, a: Action): [State, Effect[]] {
         return [next, around.length ? [{ type: "prefetch", chatIds: around }] : []];
       }
       if (s.view === "results" && s.results) return [{ ...s, results: { ...s.results, sel: Number(a.id) } }, []];
+      if (s.view === "topics" && s.topics) return [{ ...s, topics: { ...s.topics, sel: Number(a.id) } }, []];
       if (s.view === "chat" && s.open) {
         const o = s.open;
         const id = Number(a.id);
@@ -407,7 +450,8 @@ function applyEvent(s: State, e: SourceEvent): [State, Effect[]] {
   if (e.type === "online") return [{ ...s, online: e.online }, e.online ? [{ type: "loadChats" }] : []];
   if (e.type === "read") return [{ ...s, chats: withChat(s, e.chatId, (c) => ({ ...c, unread: 0, mentions: 0 })) }, []];
 
-  const viewing = s.view === "chat" && s.open?.chatId === e.chatId;
+  const conv = msgConv(s, e.chatId, e.msg);
+  const viewing = s.view === "chat" && openConv(s) === conv;
   const effects: Effect[] = [];
   if (!s.chats.some((c) => c.id === e.chatId)) effects.push({ type: "loadChats" });
   const chats = bumpToTop(
@@ -420,7 +464,7 @@ function applyEvent(s: State, e: SourceEvent): [State, Effect[]] {
   );
 
   let open = s.open;
-  if (open && open.chatId === e.chatId && open.latest && !open.messages.some((m) => m.id === e.msg.id)) {
+  if (open && openConv(s) === conv && open.latest && !open.messages.some((m) => m.id === e.msg.id)) {
     const atEnd = open.sel === open.messages[open.messages.length - 1]?.id;
     open = {
       ...open,
@@ -428,9 +472,26 @@ function applyEvent(s: State, e: SourceEvent): [State, Effect[]] {
       sel: atEnd ? e.msg.id : open.sel,
       newBelow: atEnd ? open.newBelow : open.newBelow + 1,
     };
-    if (viewing && !e.msg.out) effects.push({ type: "markRead", chatId: e.chatId });
+    if (viewing && !e.msg.out) {
+      effects.push(open.topicId !== undefined ? { type: "markRead", chatId: e.chatId, topic: { id: open.topicId, maxId: e.msg.id } } : { type: "markRead", chatId: e.chatId });
+    }
   }
-  const key = draftKey(s, e.chatId);
+  const key = draftKey(s, conv);
   const history = s.history[key] ? { ...s.history, [key]: mergeMessages(s.history[key]!, [e.msg]).slice(-200) } : s.history;
-  return [{ ...s, chats, open, history }, effects];
+  // the forum's topic list, if it's loaded: that topic gets the new last message
+  let topics = s.topics;
+  if (topics?.chatId === e.chatId) {
+    const tid = e.msg.topicId ?? 1;
+    topics = {
+      ...topics,
+      items: sortTopics(
+        topics.items.map((t) =>
+          t.id === tid
+            ? { ...t, unread: e.msg.out || viewing ? t.unread : t.unread + 1, last: { text: e.msg.text || (e.msg.media ? `[${e.msg.media}]` : ""), from: e.msg.sender, date: e.msg.date, out: e.msg.out } }
+            : t
+        )
+      ),
+    };
+  }
+  return [{ ...s, chats, open, history, topics }, effects];
 }

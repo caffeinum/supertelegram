@@ -488,6 +488,17 @@ describe("links, images, filter, accounts", () => {
     expect(s.src.calls.some((c) => c.method === "thumbnail" && c.args[1] === 32)).toBe(true);
   });
 
+  test("photos sent together say they're one album", async () => {
+    const m = msgs();
+    m["42"] = [
+      { id: 40, date: now - 60, out: false, senderId: "42", sender: "Kate", text: "look", media: "photo", album: "g1" },
+      { id: 41, date: now - 60, out: false, senderId: "42", sender: "Kate", text: "", media: "photo", album: "g1" },
+    ];
+    const s = await setup({ messages: m });
+    await s.keys("gc", "kate", "enter");
+    await s.until((x) => x.includes("▣ photo · album 1/2") && x.includes("▣ photo · album 2/2"));
+  });
+
   test("durations read like a player", async () => {
     const { duration } = await import("../src/cli/duration");
     expect([duration(9), duration(16.8), duration(83), duration(3725)]).toEqual(["0:09", "0:17", "1:23", "1:02:05"]);
@@ -606,6 +617,73 @@ test("a message whose live update was lost still shows up on the next resync", a
   s.src.messages["-100"]!.push({ id: 99, date: now, out: false, senderId: "11", sender: "mnk", text: "missed by the push" });
   s.src.chats[0]!.last = { text: "missed by the push", out: false, date: now };
   await s.until((x) => x.includes("missed by the push"), 3000);
+});
+
+test("the cursor bar covers every row of the selected message, photo included", async () => {
+  const m = msgs();
+  m["42"] = [{ id: 50, date: now - 60, out: false, senderId: "42", sender: "Kate", text: "line one", media: "photo" }];
+  const s = await setup({ messages: m });
+  await s.keys("gc", "kate", "enter");
+  const f = await s.until((x) => x.includes("line one"));
+  const lines = f.split("\n");
+  const head = lines.findIndex((l) => l.includes("⏺ Kate"));
+  expect(lines[head]!.startsWith("▌")).toBe(true);
+  expect(lines[head + 1]!.startsWith("▌")).toBe(true); // the text row
+  expect(lines[head + 2]!.startsWith("▌") && lines[head + 2]!.includes("▣ photo")).toBe(true); // the photo row
+});
+
+describe("forums", () => {
+  async function forum() {
+    const s = await setup();
+    s.src.chats.push({ id: "-300", title: "ai", kind: "supergroup", forum: true, unread: 2, mentions: 0, muted: false, pinned: false, last: { text: "done", out: false, date: now } });
+    s.src.topicList["-300"] = [
+      { id: 1, title: "General", unread: 0, last: { text: "hi all", date: now - 900, out: false } },
+      { id: 1622, title: "vibeos-landing", unread: 2, last: { text: "all done and live", from: "paw", date: now - 60, out: false } },
+      { id: 3381, title: "forum", unread: 0, pinned: true, last: { text: "pinned topic", date: now - 5000, out: false } },
+    ];
+    s.src.messages["-300"] = [
+      { id: 10, date: now - 900, out: false, senderId: "5", sender: "paw", text: "hi all" }, // General: no topic header
+      { id: 1622, date: now - 800, out: false, senderId: "5", sender: "paw", text: "[TopicCreate]", topicId: 1622 },
+      { id: 1700, date: now - 60, out: false, senderId: "5", sender: "paw", text: "all done and live", topicId: 1622 },
+      { id: 3400, date: now - 50, out: false, senderId: "5", sender: "paw", text: "pinned topic", topicId: 3381 },
+    ];
+    await s.keys("ctrl-r");
+    await s.until((x) => x.includes(" ai "));
+    await s.keys("gc", "ai", "enter");
+    await s.until((x) => x.includes("3 topics") && x.includes("vibeos-landing"));
+    return s;
+  }
+
+  test("a forum opens on its topics: pinned first, then by latest message", async () => {
+    const s = await forum();
+    const rows = s.frame().split("\n").filter((l) => /^[▌ ][●⌃✕#] /.test(l)).map((l) => l.slice(3, 20).trim());
+    expect(rows).toEqual(["forum", "vibeos-landing", "General"]);
+  });
+
+  test("a topic shows only its messages, sends into it, and h goes back to the topics", async () => {
+    const s = await forum();
+    await s.keys("j", "enter"); // vibeos-landing
+    await s.until((x) => x.includes("ai › vibeos-landing") && x.includes("all done and live"));
+    expect(s.frame()).not.toContain("hi all"); // General's message isn't here
+    expect(s.frame()).not.toContain("pinned topic");
+    expect(s.src.calls.some((c) => c.method === "markRead" && JSON.stringify(c.args) === JSON.stringify(["-300", { id: 1622, maxId: 1700 }]))).toBe(true);
+    await s.keys("i", "posting here", "enter");
+    await s.until((x) => x.includes("> posting here"));
+    expect(s.src.calls.find((c) => c.method === "send")!.args.slice(0, 3)).toEqual(["-300", "posting here", { replyTo: undefined, topicId: 1622 }]);
+    await s.keys("esc", "h");
+    await s.until((x) => x.includes("3 topics"));
+    await s.keys("h");
+    await s.until((x) => x.includes("Covers!"));
+  });
+
+  test("drafts are per topic", async () => {
+    const s = await forum();
+    await s.keys("j", "enter");
+    await s.until((x) => x.includes("ai › vibeos-landing"));
+    await s.keys("i", "for landing", "esc", "h", "j", "enter");
+    await s.until((x) => x.includes("ai › General") && x.includes("hi all"));
+    expect(s.frame()).not.toContain("for landing");
+  });
 });
 
 describe("forward", () => {

@@ -56,6 +56,7 @@ it's modal like vim, so letters never land in a message by accident:
 | reply / media / copy | `r` reply · `f` forward (pick a chat, newest first) · `v` show image / video preview inline · `V` full screen · `t` transcribe a voice message or video note · `o` open (file → its app, link → browser, location → maps) · `gx` open link · `y` copy text |
 | image | `ctrl-v` pastes the clipboard image (or drag a file in) as an attachment chip |
 | go to | `gc` chat… · `gs` search everywhere · `gu` next unread · `gi` chat list · `gm` saved messages · `ga` account |
+| forums | a forum group opens on its topics (`/` filters them) · `enter` opens a topic · `h` back to the topics — messages, drafts and sends stay inside the topic |
 | folders | `tab` / `shift-tab` next/prev folder · `gf` folder… — opens on your default folder (the first in telegram's order) |
 | everything | `ctrl-k` or `:` — command palette with every feature and its shortcut · `?` help |
 | quit | `ctrl-c ctrl-c` or `:q` — drafts are kept per chat (`~/.supertelegram/drafts.json`) |

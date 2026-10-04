@@ -8,7 +8,7 @@ import { setConfig } from "../config/manager";
 import { handleKey, type Key } from "./keys";
 import { apply, type Action, type Effect, type State } from "./state";
 import type { ChatPool, DataSource } from "./types";
-import { ChatList, ChatView, FolderTabs, Header, Help, Palette, Prompt, Results, StatusBar, Viewer } from "./views";
+import { ChatList, ChatView, FolderTabs, Header, Help, Palette, Prompt, Results, StatusBar, Topics, Viewer } from "./views";
 
 const HISTORY_PAGE = 60;
 const PREFETCH_CONCURRENCY = 2;
@@ -88,21 +88,23 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
         }
         case "loadChats":
           return source.listChats(CHATS).then((pool) => act({ type: "chatsLoaded", chats: pool.chats, folders: pool.folders }), fail("couldn't load chats"));
+        case "loadTopics":
+          return source.topics(e.chatId).then((items) => act({ type: "topicsLoaded", chatId: e.chatId, items }), fail("couldn't load topics"));
         case "openChat":
           if (e.markRead) source.markRead(e.chatId).catch(fail("couldn't mark read"));
           return source
-            .history(e.chatId, { limit: HISTORY_PAGE })
-            .then((msgs) => act({ type: "historyLoaded", chatId: e.chatId, msgs, mode: "replace", latest: true, limit: HISTORY_PAGE }))
+            .history(e.chatId, { limit: HISTORY_PAGE, topicId: e.topicId })
+            .then((msgs) => act({ type: "historyLoaded", chatId: e.chatId, topicId: e.topicId, msgs, mode: "replace", latest: true, limit: HISTORY_PAGE }))
             .catch((err) => act({ type: "historyFailed", chatId: e.chatId, error: message(err) }));
         case "loadOlder":
           return source
-            .history(e.chatId, { limit: HISTORY_PAGE, before: e.before })
-            .then((msgs) => act({ type: "historyLoaded", chatId: e.chatId, msgs, mode: "prepend", latest: true, limit: HISTORY_PAGE }))
+            .history(e.chatId, { limit: HISTORY_PAGE, before: e.before, topicId: e.topicId })
+            .then((msgs) => act({ type: "historyLoaded", chatId: e.chatId, topicId: e.topicId, msgs, mode: "prepend", latest: true, limit: HISTORY_PAGE }))
             .catch((err) => act({ type: "historyFailed", chatId: e.chatId, error: message(err) }));
         case "jumpTo":
           return source
-            .history(e.chatId, { limit: HISTORY_PAGE, before: e.msgId + 1 })
-            .then((msgs) => act({ type: "historyLoaded", chatId: e.chatId, msgs, mode: "replace", select: e.msgId, latest: false, limit: HISTORY_PAGE }))
+            .history(e.chatId, { limit: HISTORY_PAGE, before: e.msgId + 1, topicId: e.topicId })
+            .then((msgs) => act({ type: "historyLoaded", chatId: e.chatId, topicId: e.topicId, msgs, mode: "replace", select: e.msgId, latest: false, limit: HISTORY_PAGE }))
             .catch((err) => act({ type: "historyFailed", chatId: e.chatId, error: message(err) }));
         case "send": {
           const { draft, chatId, key } = e;
@@ -112,11 +114,11 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
             let last;
             if (draft.files.length) {
               for (const [i, file] of draft.files.entries()) {
-                last = await source.send(chatId, i === 0 ? draft.text : "", { file, replyTo: i === 0 ? draft.replyTo : undefined });
+                last = await source.send(chatId, i === 0 ? draft.text : "", { file, replyTo: i === 0 ? draft.replyTo : undefined, topicId: e.topicId });
                 sentFiles = i + 1;
               }
             } else {
-              last = await source.send(chatId, draft.text, { replyTo: draft.replyTo });
+              last = await source.send(chatId, draft.text, { replyTo: draft.replyTo, topicId: e.topicId });
             }
             act({ type: "sent", key, chatId, msg: last! });
           } catch (err) {
@@ -129,7 +131,7 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
           return;
         }
         case "markRead":
-          return source.markRead(e.chatId).catch(fail("couldn't mark read"));
+          return source.markRead(e.chatId, e.topic).catch(fail("couldn't mark read"));
         case "forward":
           return source
             .forward(e.fromChatId, e.msgIds, e.toChatId)
@@ -265,6 +267,8 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
         <ChatView s={state} cols={cols} rows={rows} onPick={pick} />
         <Prompt s={state} cols={cols} />
       </>
+    ) : state.view === "topics" && state.topics ? (
+      <Topics s={state} cols={cols} rows={rows} onPick={pick} />
     ) : state.view === "results" && state.results ? (
       <Results s={state} cols={cols} rows={rows} onPick={pick} />
     ) : (

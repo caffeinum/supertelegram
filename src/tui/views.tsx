@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { basename } from "node:path";
 import { C, dayLabel, fit, hhmm, pad, padStart, sameDay, senderColor, shortTime, width } from "./format";
 import { helpRows, paletteEntries } from "./keys";
-import { chatById, currentDraft, currentFolder, draftKey, hasDraft, visibleChats, type State } from "./state";
+import { chatById, currentDraft, currentFolder, draftKey, hasDraft, openConv, visibleChats, visibleTopics, type State } from "./state";
 import { unreadChats } from "./folders";
 import type { ChatSummary, Msg } from "./types";
 
@@ -100,7 +100,11 @@ export function Header({ s, cols }: { s: State; cols: number }) {
   const chat = s.view === "chat" && s.open ? chatById(s, s.open.chatId) : undefined;
   const where = s.forward
     ? `forward #${s.forward.msgIds.join(", #")} to… (enter picks · / filters · esc cancels)`
-    : s.view === "chat" && chat
+    : s.view === "chat" && chat && s.open?.topicId !== undefined
+      ? `← ${chat.title} › ${s.open.topicTitle ?? `topic ${s.open.topicId}`}`
+      : s.view === "topics" && s.topics
+        ? `← ${chatById(s, s.topics.chatId)?.title ?? "forum"} · ${s.topics.items.length} topics`
+        : s.view === "chat" && chat
       ? `← ${chat.title} · ${chat.kind} · ${chat.id}`
       : s.view === "results" && s.results
         ? `search "${s.results.query}"${s.results.scope ? ` in ${chatById(s, s.results.scope)?.title ?? "chat"}` : ""}`
@@ -212,7 +216,8 @@ function InlineImage({ s, m }: { s: State; m: Msg }) {
   if (!it.path) return <text fg={C.gray} attributes={DIM}>{"  loading image…"}</text>;
   return (
     <box height={INLINE_ROWS} flexDirection="row" paddingLeft={2}>
-      <image key={`${it.path}:${s.imageProtocol}`} source={it.path} fit="fit" protocol={s.imageProtocol} height={INLINE_ROWS} width={INLINE_ROWS * 4} />
+      {/* always blocks inside the scrolling chat: kitty/sixel images don't survive scrolling (and drew blank in cmux) */}
+      <image key={it.path} source={it.path} fit="fit" protocol="blocks" height={INLINE_ROWS} width={INLINE_ROWS * 4} />
     </box>
   );
 }
@@ -229,15 +234,24 @@ function Transcript({ s, m }: { s: State; m: Msg }) {
   );
 }
 
+// the cursor: a bar down the whole selected message (text, photo, transcript…), not just its first line
+const BAR = { topLeft: "▌", topRight: " ", bottomLeft: "▌", bottomRight: " ", horizontal: " ", vertical: "▌", topT: "▌", bottomT: "▌", leftT: "▌", rightT: " ", cross: "▌" };
+function selBar(sel: boolean) {
+  return sel ? { border: ["left"] as ("left")[], borderColor: C.accent, customBorderChars: BAR } : { paddingLeft: 1 };
+}
+
+// "album 1/3": photos sent together arrive as separate messages sharing a grouped id
+function albumPart(m: Msg, all: Msg[]): string {
+  if (!m.album) return "";
+  const parts = all.filter((x) => x.album === m.album);
+  return parts.length > 1 ? ` · album ${parts.findIndex((x) => x.id === m.id) + 1}/${parts.length}` : "";
+}
+
 function MessageView({ m, prev, sel, s, replied }: { m: Msg; prev?: Msg; sel: boolean; s: State; replied?: Msg }) {
-  const gutter = (
-    <text fg={C.accent} width={1}>
-      {sel ? "▌" : " "}
-    </text>
-  );
+
   const meta = `${hhmm(m.date)} #${m.id}`;
   const body = m.action ? `[${m.action}]` : m.text;
-  const media = m.media ? `▣ ${m.media}` : undefined;
+  const media = m.media ? `▣ ${m.media}${albumPart(m, s.open?.messages ?? [])}` : undefined;
   const quote = m.replyTo
     ? replied
       ? `┃ ↳ ${replied.out ? "you" : (replied.sender ?? "?")}: ${replied.text || (replied.media ? `[${replied.media}]` : "")}`
@@ -246,8 +260,7 @@ function MessageView({ m, prev, sel, s, replied }: { m: Msg; prev?: Msg; sel: bo
 
   if (m.out) {
     return (
-      <box id={`m${m.id}`} flexDirection="row" marginTop={prev && !prev.out ? 1 : 0}>
-        {gutter}
+      <box id={`m${m.id}`} flexDirection="row" marginTop={prev && !prev.out ? 1 : 0} {...selBar(sel)}>
         <box flexDirection="column" flexGrow={1}>
           {quote && (
             <text fg={C.gray} attributes={DIM} wrapMode="none" truncate>
@@ -272,8 +285,7 @@ function MessageView({ m, prev, sel, s, replied }: { m: Msg; prev?: Msg; sel: bo
   const grouped = prev && !prev.out && prev.senderId === m.senderId && sameDay(prev.date, m.date) && m.date - prev.date < 300 && !m.action;
   const color = senderColor(m.senderId);
   return (
-    <box id={`m${m.id}`} flexDirection="row" marginTop={grouped ? 0 : 1}>
-      {gutter}
+    <box id={`m${m.id}`} flexDirection="row" marginTop={grouped ? 0 : 1} {...selBar(sel)}>
       <box flexDirection="column" flexGrow={1}>
         {!grouped && (
           <box flexDirection="row">
@@ -357,7 +369,7 @@ export function ChatView({ s, cols, onPick }: { s: State; cols: number; rows: nu
 
 export function Prompt({ s, cols }: { s: State; cols: number }) {
   const d = currentDraft(s);
-  const key = s.open ? draftKey(s, s.open.chatId) : "";
+  const key = s.open ? draftKey(s, openConv(s)) : "";
   const sending = Boolean(s.outbox[key]);
   const insert = s.mode === "insert";
   const replied = d?.replyTo ? s.open?.messages.find((m) => m.id === d.replyTo) : undefined;
@@ -410,6 +422,36 @@ export function Prompt({ s, cols }: { s: State; cols: number }) {
         </text>
       )}
     </box>
+  );
+}
+
+export function Topics({ s, cols, onPick }: { s: State; cols: number; rows: number; onPick?: (id: string) => void }) {
+  const ref = useRef<ScrollBoxRenderable>(null);
+  const t = s.topics!;
+  const items = visibleTopics(s);
+  useCursorScroll(ref, t.sel !== undefined ? `t${t.sel}` : undefined, items.map((x) => `t${x.id}`), s.view === "topics" ? s.scrollReq : undefined, onPick && ((id) => onPick(id.slice(1))));
+  if (t.loading && !t.items.length) return <text fg={C.gray}>{" loading topics…"}</text>;
+  if (!items.length) return <text fg={C.gray}>{s.filter ? ` no topics matching "${s.filter}"` : " no topics"}</text>;
+  const titleW = Math.min(30, Math.max(14, Math.floor(cols * 0.28)));
+  const previewW = Math.max(0, cols - titleW - 18);
+  return (
+    <scrollbox ref={ref} flexGrow={1} scrollY viewportCulling scrollbarOptions={SCROLLBAR}>
+      {items.map((x) => {
+        const sel = x.id === t.sel;
+        const unread = x.unread > 0;
+        const preview = x.last ? `${x.last.out ? "you: " : x.last.from ? `${x.last.from.split(" ")[0]}: ` : ""}${x.last.text}` : "";
+        return (
+          <box key={x.id} id={`t${x.id}`} height={1} flexDirection="row">
+            <text fg={C.accent}>{sel ? "▌" : " "}</text>
+            <text fg={C.accent}>{unread ? "● " : x.pinned ? "⌃ " : x.closed ? "✕ " : "# "}</text>
+            <text fg={C.fg} attributes={unread || sel ? BOLD : 0}>{pad(fit(x.title, titleW), titleW)}</text>
+            <text fg={C.accent} attributes={BOLD}>{padStart(unread ? (x.unread > 99 ? "99+" : String(x.unread)) : "", 4) + " "}</text>
+            <text fg={C.gray} attributes={unread ? 0 : DIM}>{pad(fit(preview, previewW), previewW)}</text>
+            <text fg={C.gray} attributes={DIM}>{padStart(x.last ? shortTime(x.last.date) : "", 7)}</text>
+          </box>
+        );
+      })}
+    </scrollbox>
   );
 }
 
@@ -510,6 +552,7 @@ export function Help({ s, cols }: { s: State; cols: number }) {
 }
 
 const HINTS: Record<string, string> = {
+  topics: "j/k move · enter open topic · / filter topics · h back to chats · ctrl-k commands",
   forward: "pick a chat to forward to · j/k move · / filter · enter forward · esc cancel",
   list: "j/k move · enter open · / filter · gu next unread · gs search · ctrl-k commands",
   chat: "j/k select · i write · r reply · o open media · / search · h back · ctrl-k commands",
@@ -523,7 +566,9 @@ export function StatusBar({ s, cols }: { s: State; cols: number }) {
   // while typing, always say who you're sending as
   const hint = s.toast
     ? s.toast.text
-    : s.mode === "filter"
+    : s.mode === "filter" && s.view === "topics"
+      ? `/${s.filter}  ·  filter topics · enter keep · esc clear`
+      : s.mode === "filter"
       ? `/${s.filter}  ·  ${HINTS.filter}`
       : s.mode === "insert"
         ? `sending as ${s.accountLabel || s.account} · ${HINTS.insert}`

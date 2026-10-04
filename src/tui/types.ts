@@ -11,6 +11,7 @@ export interface ChatSummary {
   pinned: boolean;
   self?: boolean; // saved messages
   contact?: boolean; // a user in your contacts (folders filter on it)
+  forum?: boolean; // a supergroup split into topics
   archived?: boolean;
   last?: { text: string; from?: string; out: boolean; date: number; media?: string };
 }
@@ -50,6 +51,17 @@ export interface Msg {
   action?: string;
   replyTo?: number;
   urls?: string[]; // links in the text, including hidden ones behind link text
+  topicId?: number; // forum topic this message belongs to (1 = General)
+  album?: string; // telegram's grouped_id: photos/videos sent together, one message each
+}
+
+export interface Topic {
+  id: number; // 1 is "General"
+  title: string;
+  unread: number;
+  pinned?: boolean;
+  closed?: boolean;
+  last?: { text: string; from?: string; date: number; out: boolean };
 }
 
 export interface SearchHit {
@@ -65,6 +77,7 @@ export type SourceEvent =
 export interface SendOpts {
   replyTo?: number;
   file?: string;
+  topicId?: number; // post into this forum topic
 }
 
 // everything the tui needs from telegram; GramSource talks to telegram, FakeSource backs the tests
@@ -80,10 +93,11 @@ export interface DataSource {
   // chats folders name that aren't among the recent ones; slow (rate-limited), so loaded in the background
   folderExtras(folders: Folder[], have: string[]): Promise<ChatSummary[]>;
   // chronological (oldest first). `before` pages back; `around` returns a page ending at that id
-  history(chatId: string, opts: { limit: number; before?: number }): Promise<Msg[]>;
+  history(chatId: string, opts: { limit: number; before?: number; topicId?: number }): Promise<Msg[]>;
+  topics(chatId: string): Promise<Topic[]>;
   send(chatId: string, text: string, opts: SendOpts): Promise<Msg>;
   forward(fromChatId: string, msgIds: number[], toChatId: string): Promise<void>;
-  markRead(chatId: string): Promise<void>;
+  markRead(chatId: string, topic?: { id: number; maxId: number }): Promise<void>;
   markUnread(chatId: string): Promise<void>;
   search(query: string, chatId?: string): Promise<SearchHit[]>;
   download(chatId: string, msgId: number): Promise<string>;

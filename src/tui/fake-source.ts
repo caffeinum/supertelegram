@@ -1,4 +1,4 @@
-import type { ChatSummary, DataSource, Folder, Msg, SearchHit, SendOpts, SourceEvent } from "./types";
+import type { ChatSummary, DataSource, Folder, Msg, SearchHit, SendOpts, SourceEvent, Topic } from "./types";
 import { ALL_CHATS } from "./folders";
 
 // in-memory telegram for tests: records every call so tests can assert on what was sent/read
@@ -52,10 +52,16 @@ export class FakeSource implements DataSource {
     if (this.accountName !== "default") return (await this.peek(this.accountName, 0)).pool;
     return { chats: this.chats.map((c) => ({ ...c })), folders: this.folders };
   }
-  async history(chatId: string, opts: { limit: number; before?: number }) {
+  topicList: Record<string, Topic[]> = {};
+  async topics(chatId: string) {
+    this.calls.push({ method: "topics", args: [chatId] });
+    return this.topicList[chatId] ?? [];
+  }
+  async history(chatId: string, opts: { limit: number; before?: number; topicId?: number }) {
     this.calls.push({ method: "history", args: [chatId, opts] });
     if (this.historyDelayMs) await Bun.sleep(this.historyDelayMs);
-    const all = (this.messages[chatId] ?? []).filter((m) => opts.before === undefined || m.id < opts.before);
+    const inTopic = (m: Msg) => opts.topicId === undefined || (m.topicId ?? 1) === opts.topicId;
+    const all = (this.messages[chatId] ?? []).filter((m) => (opts.before === undefined || m.id < opts.before) && inTopic(m));
     return all.slice(-opts.limit);
   }
   async send(chatId: string, text: string, opts: SendOpts) {
@@ -65,15 +71,15 @@ export class FakeSource implements DataSource {
       this.failNextSend = undefined;
       throw new Error(err);
     }
-    const msg: Msg = { id: this.nextId++, date: Math.floor(Date.now() / 1000), out: true, text, media: opts.file ? "photo" : undefined, replyTo: opts.replyTo };
+    const msg: Msg = { id: this.nextId++, date: Math.floor(Date.now() / 1000), out: true, text, media: opts.file ? "photo" : undefined, replyTo: opts.replyTo, topicId: opts.topicId };
     (this.messages[chatId] ??= []).push(msg);
     return msg;
   }
   async forward(fromChatId: string, msgIds: number[], toChatId: string) {
     this.calls.push({ method: "forward", args: [fromChatId, msgIds, toChatId, this.accountName] });
   }
-  async markRead(chatId: string) {
-    this.calls.push({ method: "markRead", args: [chatId] });
+  async markRead(chatId: string, topic?: { id: number; maxId: number }) {
+    this.calls.push({ method: "markRead", args: topic ? [chatId, topic] : [chatId] });
   }
   async markUnread(chatId: string) {
     this.calls.push({ method: "markUnread", args: [chatId] });
