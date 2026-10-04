@@ -1,0 +1,42 @@
+src/tui/lazy-source.ts
+  s_16629319d5ff14::t_3991157fb07861 53
+src/tui/fake-source.ts
+  s_16629319d5ff14::t_3991157fb07861 78-81
+tests/tui.test.tsx
+  s_16629319d5ff14::t_3991157fb07861 760,765-779
+  s_16629319d5ff14::t_e9978586aa8a07 706-710,714-719
+  s_16629319d5ff14::t_02fe307330bf31 711-713
+src/tui/app.tsx
+  s_16629319d5ff14::t_3991157fb07861 139-143
+src/tui/keys.ts
+  s_16629319d5ff14::t_e9978586aa8a07 544-546,576-580
+  s_16629319d5ff14::t_3991157fb07861 757-758,761,763-770
+  s_16629319d5ff14::t_35f7eaaeae559c 548-559
+src/tui/state.ts
+  s_16629319d5ff14::t_3991157fb07861 79
+  s_16629319d5ff14::t_35f7eaaeae559c 64
+src/tui/gram-source.ts
+  s_16629319d5ff14::t_3991157fb07861 375,378
+src/tui/types.ts
+  s_16629319d5ff14::t_3991157fb07861 108-109
+CLAUDE.md
+  s_16629319d5ff14::t_b40ba641ffc232 57
+package.json
+  s_16629319d5ff14::t_49025a331028b3 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f9df580042022ad77b9d05cd160db319ab3e8550",
+  "prompts": {},
+  "sessions": {
+    "s_16629319d5ff14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "178efc37-68c6-4170-ba93-827188df0ccd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
