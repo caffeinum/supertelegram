@@ -703,6 +703,16 @@ describe("input row, reply, reactions", () => {
     expect(s.src.sent()[1]![2]).toEqual({ replyTo: 1000 }); // the newest message, our own "fresh one"
   });
 
+  test("ctrl-x drops the reply chip from normal mode too", async () => {
+    const s = await setup();
+    await s.keys("enter");
+    await s.until((x) => x.includes("8qcK address"));
+    await s.keys("k", "enter", "esc"); // reply started, back to normal
+    await s.until((x) => x.includes("replying to") && x.includes("NORMAL"));
+    await s.keys("ctrl-x");
+    await s.until((x) => !x.includes("replying to"));
+  });
+
   test("j past the last message returns to the input; a live message doesn't move a cursor on a message", async () => {
     const s = await setup();
     await s.keys("enter");

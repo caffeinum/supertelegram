@@ -362,6 +362,17 @@ export const COMMANDS: Command[] = [
     views: ["chat"],
     run: (s) => (selectedMsg(s) ? palette("react")(s) : toast(s, "select a message to react to (k)", true)),
   },
+  {
+    id: "drop-chip",
+    title: "drop the reply / last attachment from the prompt",
+    keys: ["ctrl-x"],
+    views: ["chat"],
+    run: (s) => {
+      const d = currentDraft(s);
+      if (!d || (d.replyTo === undefined && !d.files.length)) return toast(s, "nothing to drop");
+      return withDraft(s, (x) => (x.files.length ? { ...x, files: x.files.slice(0, -1) } : { ...x, replyTo: undefined }));
+    },
+  },
   { id: "paste-image", title: "paste image from clipboard", keys: ["ctrl-v"], views: ["chat"], run: (s) => pasteImage({ ...s, mode: "insert" }) },
   { id: "attach", title: "attach a file…", keys: [], views: ["chat"], run: palette("file") },
   {
