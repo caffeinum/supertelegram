@@ -117,13 +117,21 @@ export function Header({ s, cols }: { s: State; cols: number }) {
       : s.view === "results" && s.results
         ? `search "${s.results.query}"${s.results.scope ? ` in ${chatById(s, s.results.scope)?.title ?? "chat"}` : ""}`
         : `${s.chats.filter((c) => c.unread > 0).length} unread chats · ${s.chats.length} loaded`;
-  const right = `${s.online ? "" : "offline · "}${s.account} ${s.accountLabel} · ga switch   ? help`;
+  // narrow screens shed the hints, then the brand, so the parts never draw over each other
+  const offline = s.online ? "" : "offline · ";
+  const room = (brand: string, right: string) => cols - width(brand) - width(right) - 2;
+  const layouts = [
+    [" supertelegram ", `${offline}${s.account} ${s.accountLabel} · ga switch   ? help`],
+    [" supertelegram ", `${offline}${s.account} ${s.accountLabel}`],
+    [" ", `${offline}${s.account}`],
+  ] as const;
+  const [brand, right] = layouts.find(([b, r]) => room(b, r) >= 24) ?? layouts[2];
   return (
     <box height={1} flexDirection="row">
       <text attributes={BOLD} fg={C.accent}>
-        {" supertelegram "}
+        {brand}
       </text>
-      <text fg={C.fg}>{fit(where, Math.max(10, cols - 18 - width(right)))}</text>
+      <text fg={C.fg}>{fit(where, Math.max(0, room(brand, right)))}</text>
       <box flexGrow={1} />
       <text fg={s.online ? C.gray : C.red}>{right + " "}</text>
     </box>
@@ -408,7 +416,7 @@ export function Prompt({ s, cols }: { s: State; cols: number }) {
     const prefix = i === 0 ? (onInputRow ? "▌> " : "> ") : onInputRow ? "▌  " : "  ";
     if (!insert || !d || d.cursor < start || d.cursor > start + line.length) {
       return (
-        <text fg={C.fg} key={i}>
+        <text fg={C.fg} key={i} wrapMode="char">
           <span fg={C.gray}>{prefix}</span>
           {line}
         </text>
@@ -417,7 +425,7 @@ export function Prompt({ s, cols }: { s: State; cols: number }) {
     const at = d.cursor - start;
     const ch = [...line.slice(at)][0] ?? " ";
     return (
-      <text fg={C.fg} key={i}>
+      <text fg={C.fg} key={i} wrapMode="char">
         <span fg={C.gray}>{prefix}</span>
         {line.slice(0, at)}
         <span fg={C.bg} bg={C.fg}>
@@ -428,7 +436,10 @@ export function Prompt({ s, cols }: { s: State; cols: number }) {
     );
   });
 
-  const height = 1 + (d?.replyTo !== undefined ? 1 : 0) + (d?.files.length ?? 0) + (sending ? 1 : 0) + (insert || hasDraft(d) ? lines.length : 1);
+  // a long line wraps; the box must be as tall as the wrapped rows or they draw over the rule above
+  const rows = (line: string) => Math.max(1, Math.ceil((3 + width(line) + 1) / Math.max(1, cols)));
+  const textRows = insert || hasDraft(d) ? lines.reduce((n, l) => n + rows(l), 0) : 1;
+  const height = 1 + (d?.replyTo !== undefined ? 1 : 0) + (d?.files.length ?? 0) + (sending ? 1 : 0) + textRows;
   return (
     <box flexDirection="column" height={height} flexShrink={0}>
       <Rule cols={cols} />
@@ -443,7 +454,7 @@ export function Prompt({ s, cols }: { s: State; cols: number }) {
         rendered
       ) : (
         <text fg={C.gray} attributes={onInputRow ? 0 : DIM}>
-          {onInputRow ? "▌> enter to write · k to pick a message (enter replies, r reacts) · ctrl-k commands" : "> enter replies to the selected message · r reacts · j to your input"}
+          {fit(onInputRow ? "▌> enter to write · k to pick a message (enter replies, r reacts) · ctrl-k commands" : "> enter replies to the selected message · r reacts · j to your input", cols)}
         </text>
       )}
     </box>

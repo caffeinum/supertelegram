@@ -690,6 +690,38 @@ describe("forums", () => {
   });
 });
 
+describe("small terminal", () => {
+  // the line above the input is the rule; text that wrapped past the box drew over it ("enter-to-write-…")
+  const ruleAbove = (f: string, marker: string) => {
+    const rows = f.split("\n");
+    const i = rows.findIndex((r) => r.includes(marker));
+    expect(i).toBeGreaterThan(0);
+    return rows[i - 1]!.trim();
+  };
+
+  test("the input hint fits a narrow screen instead of wrapping over the rule", async () => {
+    const s = await setup({ width: 50 });
+    const header = s.frame().split("\n")[0]!;
+    expect(header).toContain("3 unread chats");
+    expect(header).toContain("default");
+    await s.keys("enter");
+    const f = await s.until((x) => x.includes("8qcK address") && x.includes("▌> enter to write"));
+    expect(ruleAbove(f, "▌> enter to write")).toMatch(/^─+$/);
+    expect(f).not.toContain("ctrl-k commands");
+  });
+
+  test("a long draft wraps inside the input box, below the rule", async () => {
+    const s = await setup({ width: 40 });
+    await s.keys("enter");
+    await s.until((x) => x.includes("8qcK address"));
+    const long = "the quick brown fox jumps over the lazy dog and keeps running far away";
+    await s.keys("enter", long);
+    const f = await s.until((x) => x.includes("▌> the quick"));
+    expect(ruleAbove(f, "▌> the quick")).toMatch(/^─+$/);
+    expect(f.replace(/\s+/g, "")).toContain("keepsrunningfaraway");
+  });
+});
+
 describe("input row, reply, reactions", () => {
   test("a chat opens with the cursor on your input; enter writes (no reply); k then enter replies", async () => {
     const s = await setup();
