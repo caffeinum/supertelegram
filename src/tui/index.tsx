@@ -73,10 +73,14 @@ export async function runTui(source?: DataSource, account?: string): Promise<voi
   }
   // library chatter (gramjs logs, warnings) goes to a file: printing would draw over the ui
   const restoreConsole = redirectConsole();
-  const renderer = await createCliRenderer({ exitOnCtrlC: false, consoleMode: "disabled", openConsoleOnError: false });
+  // a hangup (terminal closed, tmux session killed) makes opentui destroy the renderer; end the session with it,
+  // or the process lives on with no terminal, spinning (one ran 16h at 100% cpu)
+  let ended = () => {};
+  const renderer = await createCliRenderer({ exitOnCtrlC: false, consoleMode: "disabled", openConsoleOnError: false, onDestroy: () => ended() });
   let crashed: unknown;
   try {
     await new Promise<void>((resolve) => {
+      ended = resolve;
       createRoot(renderer).render(
         <Crash
           onCrash={(e) => {
