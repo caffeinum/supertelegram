@@ -127,6 +127,19 @@ describe("chat list", () => {
     await keys("esc");
     await until((x) => x.includes("Covers!"));
   });
+
+  test("pressing / shows a search field right away, before anything is typed", async () => {
+    const { keys, until } = await setup();
+    await keys("/");
+    const f = await until((x) => x.includes("4 matches · enter keep · esc clear"));
+    expect(f.split("\n")[1]).toMatch(/^ \/ /);
+    await keys("kat");
+    await until((x) => x.includes(" / kat") && x.includes("1 match "));
+    await keys("enter");
+    await until((x) => x.includes("1 match · / edit · esc clear"));
+    await keys("esc");
+    await until((x) => !x.includes("match") && x.includes("Covers!"));
+  });
 });
 
 describe("chat view", () => {

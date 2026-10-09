@@ -153,6 +153,22 @@ function preview(c: ChatSummary): string {
   return `${who}${body}`;
 }
 
+// the search field: shows the moment / is pressed, so you can see you're typing a filter
+export function SearchBar({ s, cols, matches }: { s: State; cols: number; matches: number }) {
+  const typing = s.mode === "filter";
+  const info = `${matches} ${matches === 1 ? "match" : "matches"}${typing ? " · enter keep · esc clear" : " · / edit · esc clear"}`;
+  const room = Math.max(0, cols - width(info) - 6);
+  return (
+    <box height={1} flexDirection="row">
+      <text attributes={BOLD} fg={C.accent}>{" / "}</text>
+      <text fg={C.fg}>{fit(s.filter, room)}</text>
+      {typing && <text fg={C.bg} bg={C.fg}>{" "}</text>}
+      <box flexGrow={1} />
+      <text fg={C.gray}>{info + " "}</text>
+    </box>
+  );
+}
+
 // telegram folders as tabs; the badge counts unread (unmuted) chats like telegram does
 export function FolderTabs({ s, cols }: { s: State; cols: number }) {
   if (s.folders.length < 2 || s.forward) return null;

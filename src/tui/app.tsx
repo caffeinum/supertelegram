@@ -6,9 +6,9 @@ import { copyText, pastedPath, readClipboardImage } from "./clipboard";
 import { saveDrafts } from "./drafts";
 import { setConfig } from "../config/manager";
 import { handleKey, type Key } from "./keys";
-import { apply, type Action, type Effect, type State } from "./state";
+import { apply, visibleChats, visibleTopics, type Action, type Effect, type State } from "./state";
 import type { ChatPool, DataSource } from "./types";
-import { ChatList, ChatView, FolderTabs, Header, Help, Palette, Prompt, Results, StatusBar, Topics, Viewer } from "./views";
+import { ChatList, ChatView, FolderTabs, Header, Help, Palette, Prompt, Results, SearchBar, StatusBar, Topics, Viewer } from "./views";
 
 const HISTORY_PAGE = 60;
 const PREFETCH_CONCURRENCY = 2;
@@ -270,6 +270,7 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
 
   const pick = useCallback((id: string) => act({ type: "pick", id }), [act]);
 
+  const searching = state.mode === "filter" || state.filter !== "";
   const main =
     state.view === "chat" && state.open ? (
       <>
@@ -277,12 +278,15 @@ export function App({ source, initial, onQuit, persistDrafts = saveDrafts, persi
         <Prompt s={state} cols={cols} />
       </>
     ) : state.view === "topics" && state.topics ? (
-      <Topics s={state} cols={cols} rows={rows} onPick={pick} />
+      <>
+        {searching && <SearchBar s={state} cols={cols} matches={visibleTopics(state).length} />}
+        <Topics s={state} cols={cols} rows={rows} onPick={pick} />
+      </>
     ) : state.view === "results" && state.results ? (
       <Results s={state} cols={cols} rows={rows} onPick={pick} />
     ) : (
       <>
-        <FolderTabs s={state} cols={cols} />
+        {searching ? <SearchBar s={state} cols={cols} matches={visibleChats(state).length} /> : <FolderTabs s={state} cols={cols} />}
         <ChatList s={state} cols={cols} rows={rows} onPick={pick} />
       </>
     );
