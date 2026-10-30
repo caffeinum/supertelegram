@@ -130,10 +130,18 @@ export const COMMANDS: Command[] = [
   {
     name: "send-file",
     args: "<chat> <path> [caption]",
-    summary: "send a file/image/video",
-    examples: ['send-file @username photo.jpg "check this out"'],
+    summary: "send a file/image/video (.mp4/.mov/.m4v/.webm/.mkv go as playable videos)",
+    flags: [
+      { name: "video", desc: "send as a playable, streamable video (default for video extensions; needs ffmpeg)" },
+      { name: "document", desc: "send as a plain file, even an image or video" },
+    ],
+    examples: ['send-file @username photo.jpg "check this out"', "send-file me clip.mp4", "send-file me raw.mov --document"],
     min: 2,
-    run: (p, out) => sendFile(p.positionals[0]!, p.positionals[1]!, p.positionals.slice(2).join(" ") || undefined, out),
+    run(p, out) {
+      if (p.flags.video && p.flags.document) throw usageError("pick one of --video and --document. run: telegram send-file --help");
+      const as = p.flags.video ? "video" : p.flags.document ? "document" : "auto";
+      return sendFile(p.positionals[0]!, p.positionals[1]!, p.positionals.slice(2).join(" ") || undefined, as, out);
+    },
   },
   {
     name: "reply",

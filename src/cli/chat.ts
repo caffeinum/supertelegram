@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
+import { dirname } from "node:path";
 import { Api } from "telegram";
 import {
   requireLogin,
@@ -16,6 +17,7 @@ import {
 import { listAccounts, accountSessionPath } from "../config/accounts";
 import { CliError, EXIT } from "./errors";
 import { transcribe } from "../client/transcribe";
+import { looksLikeVideo, probeVideo } from "../client/video";
 import { chatType, displayName, isoDate, label, mediaLabel, peerId, username } from "./format";
 
 export interface Out {
@@ -83,11 +85,26 @@ export async function send(chat: string, message: string, out: Out) {
   await disconnect();
 }
 
-export async function sendFile(chat: string, path: string, caption: string | undefined, out: Out) {
+export type SendAs = "auto" | "video" | "document";
+
+export async function sendFile(chat: string, path: string, caption: string | undefined, as: SendAs, out: Out) {
+  if (!/^https?:\/\//.test(path) && !existsSync(path)) throw new CliError(`no such file: ${path}`, EXIT.notFound);
+  // probe before connecting: a missing ffmpeg fails fast, without a telegram round trip
+  const video = as === "video" || (as === "auto" && looksLikeVideo(path)) ? probeVideo(path) : undefined;
   const c = await requireLogin();
   const entity = await resolveOrHint(chat, "send-file", out);
-  const msg = await c.sendFile(entity, { file: path, caption });
-  const line = sentLine(msg, entity, "sent file");
+  const msg = video
+    ? await c.sendFile(entity, {
+        file: path,
+        caption,
+        forceDocument: false,
+        supportsStreaming: true,
+        thumb: video.thumb,
+        attributes: [new Api.DocumentAttributeVideo({ duration: video.duration, w: video.w, h: video.h, supportsStreaming: true })],
+      })
+    : await c.sendFile(entity, { file: path, caption, forceDocument: as === "document" });
+  if (video) rmSync(dirname(video.thumb), { recursive: true, force: true });
+  const line = sentLine(msg, entity, video ? `sent video (${video.w}x${video.h}, ${Math.round(video.duration)}s)` : "sent file");
   emit(out, line.json, line.text);
   await disconnect();
 }

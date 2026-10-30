@@ -139,6 +139,8 @@ exit codes: `0` ok · `1` runtime error · `2` usage · `3` chat/message not fou
 
 ```bash
 telegram send-file @username photo.jpg "check this out!"
+telegram send-file @username clip.mp4        # videos go as playable, streamable videos (needs ffmpeg)
+telegram send-file @username raw.mov --document   # or as a plain file
 telegram download @username 12345 ./downloaded.jpg   # ids are the #numbers from read
 telegram download me 12346                           # auto-named, never overwrites
 ```
